@@ -27,7 +27,7 @@
 use futures::io::{AsyncRead, AsyncWrite};
 use futures::prelude::*;
 
-use crate::box_stream::{BoxCryptParams, BoxStreamParams};
+use crate::box_stream::{BoxCrypt, BoxStreamParams};
 use crate::crypto;
 
 /// Errors returned when running the handshake protocol.
@@ -440,11 +440,11 @@ fn box_stream_params(
     remote_session_pk: &crypto::box_::PublicKey,
 ) -> BoxStreamParams {
     BoxStreamParams {
-        encrypt: BoxCryptParams {
+        encrypt: BoxCrypt {
             key: box_stream_key(&accept, remote_identity_pk),
             nonce: box_stream_nonce(local, remote_session_pk),
         },
-        decrypt: BoxCryptParams {
+        decrypt: BoxCrypt {
             key: box_stream_key(&accept, &local.identity_pk),
             nonce: box_stream_nonce(local, &local.session_pk),
         },
@@ -486,6 +486,8 @@ mod test {
 
     #[async_std::test]
     async fn run() {
+        let _ = sodiumoxide::init();
+
         let (server_writer, server_reader) = async_pipe::pipe();
         let (client_writer, client_reader) = async_pipe::pipe();
 

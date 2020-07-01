@@ -7,16 +7,20 @@ edition = "2018"
 
 [dependencies]
 async-std = "1.3"
+bytes = "0.5"
 futures = "0.3"
 libsodium-sys = "*"
+pin-project = "0.4"
 sodiumoxide = "0.2.5"
 thiserror = "1.0"
 
 [dev-dependencies]
-async-std = { version = "1.3", features = ["attributes" ] }
 async-pipe = { version = "0.1.3", features = ["futures"] }
+async-std = { version = "1.3", features = ["attributes" ] }
 duplexify = "1.0"
+quickcheck = "0.9"
+quickcheck_macros = "0.9"
 
 [patch.crates-io.async-pipe]
 git = "https://github.com/geigerzaehler/async-pipe-rs"
-rev = "74c0e25d874d8499be4814b1c96389f578c7c838"
+rev = "2181aa8800fc3d64d28a238c071d980333ea40c8"
