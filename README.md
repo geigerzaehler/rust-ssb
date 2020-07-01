@@ -1,5 +1,7 @@
 # Scecure Scuttlebut in Rust
 
+[![Build Status](https://travis-ci.org/geigerzaehler/rust-ssb.svg?branch=main)](https://travis-ci.org/geigerzaehler/rust-ssb)
+
 An unfinished implementation of the [Scuttlebut protocol][protocol] in rust
 
 ## Features
