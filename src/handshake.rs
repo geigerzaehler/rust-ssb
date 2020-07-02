@@ -260,8 +260,8 @@ fn accept_message_verify(
 }
 
 /// Data that identifies an endpoint (client or server) at the start of the handshake.
-#[derive(Clone, Debug)]
-pub struct Endpoint {
+#[derive(Debug)]
+struct Endpoint {
     identity_pk: crypto::sign::PublicKey,
     identity_sk: crypto::sign::SecretKey,
     session_pk: crypto::box_::PublicKey,
@@ -270,30 +270,6 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    pub fn new(
-        identity_pk: crypto::sign::PublicKey,
-        identity_sk: crypto::sign::SecretKey,
-        network_identifier: &[u8; 32],
-    ) -> Self {
-        let (session_pk, session_sk) = crypto::box_::gen_keypair();
-        let network_identifier = crypto::auth::Key::from_slice(network_identifier).unwrap();
-        Self {
-            identity_pk,
-            identity_sk,
-            session_pk,
-            session_sk,
-            network_identifier,
-        }
-    }
-
-    pub fn new_from_seed(
-        identity_seed: &crypto::sign::Seed,
-        network_identifier: &[u8; 32],
-    ) -> Self {
-        let (identity_pk, identity_sk) = crypto::sign::keypair_from_seed(identity_seed);
-        Self::new(identity_pk, identity_sk, network_identifier)
-    }
-
     fn hello_message(&self) -> Vec<u8> {
         [
             crypto::auth::authenticate(self.session_pk.as_ref(), &self.network_identifier).as_ref(),
