@@ -1,13 +1,32 @@
 use sodiumoxide::crypto::{hash::sha256, scalarmult::curve25519};
 use std::convert::TryFrom;
 
-pub use sodiumoxide::crypto::{auth, box_, secretbox, sign};
+pub use sodiumoxide::crypto::{box_, sign};
 
-pub fn share_key(public_key: &box_::PublicKey, secret_key: &box_::SecretKey) -> box_::SecretKey {
+pub mod auth {
+    pub use sodiumoxide::crypto::auth::*;
+
+    pub fn key_from_array(bytes: &[u8; 32]) -> Key {
+        Key::from_slice(bytes).unwrap()
+    }
+}
+
+pub mod secretbox {
+    pub use sodiumoxide::crypto::secretbox::*;
+
+    pub fn key_from_array(bytes: &[u8; 32]) -> Key {
+        Key::from_slice(bytes).unwrap()
+    }
+}
+
+pub fn share_key(
+    public_key: &box_::PublicKey,
+    secret_key: &box_::SecretKey,
+) -> Option<box_::SecretKey> {
     let group_element = curve25519::GroupElement::from_slice(public_key.as_ref()).unwrap();
     let scalar = curve25519::Scalar::from_slice(secret_key.as_ref()).unwrap();
-    let shared = curve25519::scalarmult(&scalar, &group_element).unwrap();
-    box_::SecretKey::from_slice(shared.as_ref()).unwrap()
+    let shared = curve25519::scalarmult(&scalar, &group_element).ok()?;
+    Some(box_::SecretKey::from_slice(shared.as_ref()).unwrap())
 }
 
 pub fn hash(data: impl AsRef<[u8]>) -> [u8; 32] {
@@ -44,8 +63,4 @@ pub fn sign_to_box_sk(secret_key: &sign::SecretKey) -> Option<box_::SecretKey> {
     } else {
         None
     }
-}
-
-pub fn zero_nonce() -> secretbox::Nonce {
-    secretbox::Nonce::from_slice(&[0u8; 24]).unwrap()
 }

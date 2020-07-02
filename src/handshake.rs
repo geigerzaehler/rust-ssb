@@ -71,7 +71,7 @@ impl Client {
         identity_sk: &crypto::sign::SecretKey,
     ) -> Self {
         let (session_pk, session_sk) = crypto::box_::gen_keypair();
-        let network_identifier = crypto::auth::Key::from_slice(network_identifier).unwrap();
+        let network_identifier = crypto::auth::key_from_array(network_identifier);
         Self {
             endpoint: Endpoint {
                 identity_pk: *identity_pk,
@@ -129,7 +129,7 @@ impl Server {
         identity_sk: &crypto::sign::SecretKey,
     ) -> Self {
         let (session_pk, session_sk) = crypto::box_::gen_keypair();
-        let network_identifier = crypto::auth::Key::from_slice(network_identifier).unwrap();
+        let network_identifier = crypto::auth::key_from_array(network_identifier);
         Self {
             endpoint: Endpoint {
                 identity_pk: *identity_pk,
@@ -197,7 +197,7 @@ fn authenticate_message(client: &Client, authenticate: &Authenticate) -> Vec<u8>
         client.endpoint.identity_pk.as_ref(),
     ]
     .concat();
-    crypto::secretbox::seal(&msg, &crypto::zero_nonce(), &key)
+    crypto::secretbox::seal(&msg, &zero_nonce(), &key)
 }
 
 fn authenticate_message_verify(
@@ -206,9 +206,8 @@ fn authenticate_message_verify(
     cipher_msg: &[u8; 112],
 ) -> Result<Accept, Error> {
     let key = authenticate.message_key();
-    let msg = crypto::secretbox::open(&cipher_msg[..], &crypto::zero_nonce(), &key)
+    let msg = crypto::secretbox::open(&cipher_msg[..], &zero_nonce(), &key)
         .map_err(|()| Error::AuthenticateMessageDecryptFailed)?;
-    debug_assert!(msg.len() == 96);
     let detached_signature_A = crypto::sign::Signature::from_slice(&msg[0..64]).unwrap();
     let client_identity_pk = crypto::sign::PublicKey::from_slice(&msg[64..96]).unwrap();
     let signature_payload = authenticate.signature_payload(&server.endpoint.identity_pk);
@@ -235,7 +234,7 @@ fn accept_message(server: &Server, shared_secrets: &Accept) -> Vec<u8> {
 
     crypto::secretbox::seal(
         detached_signature_B.as_ref(),
-        &crypto::zero_nonce(),
+        &zero_nonce(),
         &shared_secrets.message_key(),
     )
 }
@@ -246,7 +245,7 @@ fn accept_message_verify(
     cipher_msg: [u8; 80],
 ) -> Result<(), Error> {
     let detached_signature_B_payload =
-        crypto::secretbox::open(&cipher_msg, &crypto::zero_nonce(), &accept.message_key())
+        crypto::secretbox::open(&cipher_msg, &zero_nonce(), &accept.message_key())
             .map_err(|()| Error::AcceptMessageDecryptFailed)?;
     let detached_signature_B =
         crypto::sign::Signature::from_slice(&detached_signature_B_payload).unwrap();
@@ -301,12 +300,13 @@ struct Authenticate {
 
 impl Authenticate {
     fn for_client(client: &Client, server_session_pk: &crypto::box_::PublicKey) -> Self {
-        let ab = crypto::share_key(&server_session_pk, &client.endpoint.session_sk);
+        let ab = crypto::share_key(&server_session_pk, &client.endpoint.session_sk).unwrap();
 
         let aB = crypto::share_key(
             &crypto::sign_to_box_pk(&client.server_identity).unwrap(),
             &client.endpoint.session_sk,
-        );
+        )
+        .unwrap();
 
         Self {
             ab,
@@ -316,12 +316,13 @@ impl Authenticate {
         }
     }
     fn for_server(server: &Server, client_session_pk: &crypto::box_::PublicKey) -> Self {
-        let ab = crypto::share_key(client_session_pk, &server.endpoint.session_sk);
+        let ab = crypto::share_key(client_session_pk, &server.endpoint.session_sk).unwrap();
 
         let aB = crypto::share_key(
             &client_session_pk,
             &crypto::sign_to_box_sk(&server.endpoint.identity_sk).unwrap(),
-        );
+        )
+        .unwrap();
 
         Self {
             ab,
@@ -341,7 +342,7 @@ impl Authenticate {
             ]
             .concat(),
         );
-        crypto::secretbox::Key::from_slice(&key_data).unwrap()
+        crypto::secretbox::key_from_array(&key_data)
     }
 
     /// Returns the payload that is signed by the client and part of the `authenticate` message.
@@ -368,7 +369,8 @@ impl Accept {
         let Ab = crypto::share_key(
             &authenticate.server_session_pk,
             &crypto::sign_to_box_sk(&client.endpoint.identity_sk).unwrap(),
-        );
+        )
+        .unwrap();
 
         let msg = [
             client.endpoint.network_identifier.as_ref(),
@@ -395,7 +397,8 @@ impl Accept {
         let Ab = crypto::share_key(
             &crypto::sign_to_box_pk(&client_identity_pk).unwrap(),
             &server.endpoint.session_sk,
-        );
+        )
+        .unwrap();
 
         Self {
             authenticate,
@@ -407,7 +410,7 @@ impl Accept {
 
     /// Returns the key that encrypts the `accept` message of the server.
     fn message_key(&self) -> crypto::secretbox::Key {
-        crypto::secretbox::Key::from_slice(&crypto::hash(
+        crypto::secretbox::key_from_array(&crypto::hash(
             [
                 self.authenticate.network_identifier.as_ref(),
                 self.authenticate.ab.as_ref(),
@@ -416,7 +419,6 @@ impl Accept {
             ]
             .concat(),
         ))
-        .unwrap()
     }
 
     /// Returns the payload that is signed by the server and part of the `accept` message.
@@ -471,7 +473,11 @@ fn box_stream_key(
         ]
         .concat(),
     );
-    crypto::secretbox::Key::from_slice(&key_data).unwrap()
+    crypto::secretbox::key_from_array(&key_data)
+}
+
+fn zero_nonce() -> crypto::secretbox::Nonce {
+    crypto::secretbox::Nonce::from_slice(&[0u8; 24]).unwrap()
 }
 
 #[cfg(test)]
