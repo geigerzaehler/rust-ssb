@@ -33,16 +33,17 @@ use crate::crypto;
 /// Errors returned when running the handshake protocol.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Failed to read `hello` message from remote
-    #[error("Failed to read `hello` message from remote")]
-    HelloReadFailed(#[source] async_std::io::Error),
+    /// Failed to read data from remote
+    #[error("Failed to read data from remote")]
+    ReadFailed(#[source] async_std::io::Error),
+    /// Failed to write data to remote
+    #[error("Failed to write data to remote")]
+    WriteFailed(#[source] async_std::io::Error),
+
     /// Failed to verify `hello` message from remote
     #[error("Failed to verify `hello` message from remote")]
     HelloMessageInvalid,
 
-    /// Failed to read `authenticate` message from client
-    #[error("Failed to read `authenticate` message from client")]
-    AuthenticateReadFailed(#[source] async_std::io::Error),
     /// Failed to decrypt `authenticate` message
     #[error("Failed to decrypt `authenticate` message")]
     AuthenticateMessageDecryptFailed,
@@ -50,9 +51,6 @@ pub enum Error {
     #[error("Invalid signature in `authenticate` message")]
     AuthenticateSignatureInvalid,
 
-    /// Failed to read `accept` message from server
-    #[error("Failed to read `accept` message from server")]
-    AcceptReadFailed(#[source] async_std::io::Error),
     /// Failed to decrypt `accept` message
     #[error("Failed to decrypt `accept` message")]
     AcceptMessageDecryptFailed,
@@ -93,21 +91,21 @@ impl Client {
         stream
             .write_all(&self.endpoint.hello_message())
             .await
-            .unwrap();
+            .map_err(Error::WriteFailed)?;
 
         let hello_msg = read_hello_bytes(&mut stream).await?;
         let server_session_pk = self.endpoint.hello_verify(hello_msg)?;
         let authenticate = Authenticate::for_client(&self, &server_session_pk);
 
         let msg = authenticate_message(&self, &authenticate);
-        stream.write_all(&msg).await.unwrap();
+        stream.write_all(&msg).await.map_err(Error::WriteFailed)?;
 
         let accept = Accept::for_client(&self, authenticate);
         let mut reply = [0u8; 80];
         stream
             .read_exact(&mut reply)
             .await
-            .map_err(Error::AcceptReadFailed)?;
+            .map_err(Error::ReadFailed)?;
         accept_message_verify(&self, &accept, reply)?;
 
         Ok(box_stream_params(
@@ -155,18 +153,21 @@ impl Server {
         stream
             .write_all(&self.endpoint.hello_message())
             .await
-            .unwrap();
+            .map_err(Error::WriteFailed)?;
 
         let mut authenticate_msg = [0u8; 112];
         stream
             .read_exact(&mut authenticate_msg)
             .await
-            .map_err(Error::AuthenticateReadFailed)?;
+            .map_err(Error::ReadFailed)?;
 
         let accept = authenticate_message_verify(&self, authenticate, &authenticate_msg)?;
 
         let accept_message = accept_message(&self, &accept);
-        stream.write_all(&accept_message).await.unwrap();
+        stream
+            .write_all(&accept_message)
+            .await
+            .map_err(Error::WriteFailed)?;
 
         Ok(box_stream_params(
             &self.endpoint,
@@ -182,7 +183,7 @@ async fn read_hello_bytes(mut stream: impl AsyncRead + Unpin) -> Result<[u8; 64]
     stream
         .read_exact(&mut reply)
         .await
-        .map_err(Error::HelloReadFailed)?;
+        .map_err(Error::ReadFailed)?;
     Ok(reply)
 }
 
