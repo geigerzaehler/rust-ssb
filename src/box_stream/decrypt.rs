@@ -133,17 +133,17 @@ impl ReadBuffer {
         mut reader: Pin<&mut impl AsyncRead>,
         cx: &mut Context,
     ) -> Poll<io::Result<&[u8]>> {
-        let buf = &mut self.data[self.read_count..];
-        let read_count_current = futures::ready!(reader.as_mut().poll_read(cx, buf))?;
-        if read_count_current == 0 {
-            return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof)));
-        }
+        loop {
+            let buf = &mut self.data[self.read_count..];
+            let read_count_current = futures::ready!(reader.as_mut().poll_read(cx, buf))?;
+            if read_count_current == 0 {
+                return Poll::Ready(Err(io::Error::from(io::ErrorKind::UnexpectedEof)));
+            }
 
-        self.read_count += read_count_current;
-        if self.read_count == self.data.len() {
-            Poll::Ready(Ok(&self.data))
-        } else {
-            Poll::Pending
+            self.read_count += read_count_current;
+            if self.read_count == self.data.len() {
+                return Poll::Ready(Ok(&self.data));
+            }
         }
     }
 }
