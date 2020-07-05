@@ -4,7 +4,8 @@ rust:
 - nightly
 cache: cargo
 install:
-- rustup component add clippy
+- rustup component add clippy rustfmt
 script:
-- cargo clippy --all-targets -- --deny clippy::all
+- cargo fmt --all -- --check
+- cargo clippy --locked --all-targets -- --deny clippy::all
 - cargo test
