@@ -35,10 +35,11 @@ pub struct BoxStreamParams {
 #[cfg(test)]
 mod test {
     use super::*;
+    use crate::test_utils::*;
 
-    #[quickcheck_macros::quickcheck]
-    fn crypt_stream(messages: Vec<Vec<u8>>) {
-        async_std::task::block_on(async move {
+    #[test]
+    fn crypt_stream() {
+        async fn prop(messages: Vec<Vec<u8>>) {
             let _ = sodiumoxide::init();
             let params = BoxCrypt::arbitrary();
             let (writer, reader) = async_pipe::pipe();
@@ -55,16 +56,22 @@ mod test {
             let data_read = reader.try_concat().await.unwrap();
             assert_eq!(*data_read, *data);
             write_handle.await;
-        })
+        }
+        proptest_async(any::<Vec<Vec<u8>>>(), prop)
     }
 
-    #[quickcheck_macros::quickcheck]
-    fn early_termination(data: Vec<u8>) {
-        async_std::task::block_on(async move {
+    #[test]
+    fn early_termination() {
+        let strategy = any::<Vec<u8>>().prop_flat_map(|vec| {
+            let len = vec.len();
+            (proptest::strategy::Just(vec), 0..=len)
+        });
+
+        async fn prop((data, cutoff): (Vec<u8>, usize)) {
             let _ = sodiumoxide::init();
             let params = BoxCrypt::arbitrary();
             let (raw_writer, raw_reader) = async_pipe::pipe();
-            let raw_reader = raw_reader.take(data.len() as u64 / 2);
+            let raw_reader = raw_reader.take(cutoff as u64);
             let reader = Decrypt::new(raw_reader, params.clone());
             let mut writer = Encrypt::new(raw_writer, params);
 
@@ -80,6 +87,7 @@ mod test {
                 }
                 _ => panic!(),
             }
-        })
+        }
+        proptest_async(strategy, prop)
     }
 }

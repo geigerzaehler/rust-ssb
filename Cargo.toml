@@ -18,8 +18,7 @@ thiserror = "1.0"
 async-pipe = { version = "0.1.3", features = ["futures"] }
 async-std = { version = "1.3", features = ["attributes" ] }
 duplexify = "1.0"
-quickcheck = "0.9"
-quickcheck_macros = "0.9"
+proptest = "0.10"
 
 [patch.crates-io.async-pipe]
 git = "https://github.com/geigerzaehler/async-pipe-rs"

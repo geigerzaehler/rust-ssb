@@ -6,4 +6,7 @@ mod box_stream;
 mod crypto;
 pub mod handshake;
 
+#[cfg(test)]
+mod test_utils;
+
 pub use box_stream::{box_stream, BoxStreamParams};
