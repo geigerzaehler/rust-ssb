@@ -5,6 +5,7 @@
 mod box_stream;
 mod crypto;
 pub mod handshake;
+mod utils;
 
 #[cfg(test)]
 mod test_utils;
