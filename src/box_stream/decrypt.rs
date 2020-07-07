@@ -49,7 +49,6 @@ enum DecryptState {
         auth_tag: crypto::secretbox::Tag,
         buffer: ReadBuffer,
     },
-    Goodbye,
 }
 
 impl DecryptState {
@@ -65,8 +64,9 @@ impl<Reader: AsyncRead> Stream for Decrypt<Reader> {
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         let result = futures::ready!(self.as_mut().poll_next_inner(cx));
-        if let Some(Err(_)) = result {
-            *self.project().state = DecryptState::Closed
+        match result {
+            Some(Err(_)) | None => *self.project().state = DecryptState::Closed,
+            _ => (),
         }
         Poll::Ready(result)
     }
@@ -97,8 +97,7 @@ impl<Reader: AsyncRead> Decrypt<Reader> {
                             }
                         }
                         None => {
-                            *this.state = DecryptState::Goodbye;
-                            return Poll::Ready(None);
+                            *this.state = DecryptState::Closed;
                         }
                     }
                 }
@@ -111,7 +110,6 @@ impl<Reader: AsyncRead> Decrypt<Reader> {
                     *this.state = DecryptState::init();
                     return Poll::Ready(Some(Ok(body)));
                 }
-                DecryptState::Goodbye => return Poll::Ready(None),
             };
         }
     }
