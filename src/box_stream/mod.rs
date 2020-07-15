@@ -8,7 +8,7 @@ use futures::prelude::*;
 
 pub use box_crypt::BoxCrypt;
 pub use decrypt::{Decrypt, DecryptError};
-pub use encrypt::{Encrypt, EncryptError};
+pub use encrypt::Encrypt;
 
 /// Take a duplex stream and create a [Sink] for sending encrypted data and a [Stream] for
 /// receiving and decrypting data.

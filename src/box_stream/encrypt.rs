@@ -6,16 +6,6 @@ use std::task::{Context, Poll};
 
 use super::box_crypt::{BoxCrypt, Packet};
 
-#[derive(thiserror::Error, Debug)]
-pub enum EncryptError {
-    #[error("IO error")]
-    Io(
-        #[from]
-        #[source]
-        io::Error,
-    ),
-}
-
 #[pin_project::pin_project]
 pub struct Encrypt<Writer> {
     #[pin]
@@ -50,7 +40,7 @@ impl<Writer: AsyncWrite> Encrypt<Writer> {
 }
 
 impl<Writer: AsyncWrite> Sink<Vec<u8>> for Encrypt<Writer> {
-    type Error = EncryptError;
+    type Error = io::Error;
 
     fn poll_ready(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Result<(), Self::Error>> {
         futures::ready!(self.poll_flush_buffer(cx))?;
