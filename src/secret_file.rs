@@ -21,6 +21,13 @@ pub enum LoadError {
     #[error("Invalid secret key length {0}")]
     InvalidSecretKeyLength(usize),
 
+    #[error("Failed to decode JSON")]
+    Json(
+        #[source]
+        #[from]
+        serde_json::Error,
+    ),
+
     #[error("Cannot determine home directory")]
     NoHomeDir,
 }
@@ -45,7 +52,7 @@ fn parse(data: &str) -> Result<crypto::sign::SecretKey, LoadError> {
     }
 
     let data = strip_comments(data);
-    let Secret { private } = serde_json::from_str(&data).unwrap();
+    let Secret { private } = serde_json::from_str(&data)?;
     let key_data = match private.split(".").collect::<Vec<&str>>().as_slice() {
         [key_data, scheme] if *scheme == "ed25519" => *key_data,
         _ => return Err(LoadError::UnknownKeyScheme),
@@ -62,7 +69,7 @@ fn parse(data: &str) -> Result<crypto::sign::SecretKey, LoadError> {
 
 fn strip_comments(data: &str) -> String {
     data.lines()
-        .map(|line| if line.starts_with("# ") { "" } else { line })
+        .map(|line| if line.starts_with("#") { "" } else { line })
         .collect()
 }
 
@@ -73,6 +80,7 @@ fn parse_ok() {
     let data = r#"
 # if any one learns this name, they can use it to destroy your identity
 # NEVER show this to anyone!!!
+#
 {
   "curve": "ed25519",
   "public": "OyxgIfCyQUU4GHEvpfe1iwT3iyfEsaxRoRo4uw3XUMA=.ed25519",
