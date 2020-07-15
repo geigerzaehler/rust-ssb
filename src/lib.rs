@@ -5,6 +5,7 @@
 mod box_stream;
 mod crypto;
 pub mod handshake;
+pub mod secret_file;
 mod utils;
 
 #[cfg(test)]
