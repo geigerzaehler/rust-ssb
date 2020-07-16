@@ -53,7 +53,7 @@ fn parse(data: &str) -> Result<crypto::sign::SecretKey, LoadError> {
 
     let data = strip_comments(data);
     let Secret { private } = serde_json::from_str(&data)?;
-    let key_data = match private.split(".").collect::<Vec<&str>>().as_slice() {
+    let key_data = match private.split('.').collect::<Vec<&str>>().as_slice() {
         [key_data, scheme] if *scheme == "ed25519" => *key_data,
         _ => return Err(LoadError::UnknownKeyScheme),
     };
@@ -69,7 +69,7 @@ fn parse(data: &str) -> Result<crypto::sign::SecretKey, LoadError> {
 
 fn strip_comments(data: &str) -> String {
     data.lines()
-        .map(|line| if line.starts_with("#") { "" } else { line })
+        .map(|line| if line.starts_with('#') { "" } else { line })
         .collect()
 }
 
