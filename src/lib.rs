@@ -10,5 +10,3 @@ mod utils;
 
 #[cfg(test)]
 mod test_utils;
-
-pub use box_stream::{box_stream, BoxStreamParams};

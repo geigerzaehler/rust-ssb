@@ -1,11 +1,12 @@
-//! Execute the connection handshake on a stream.
+//! Establish an encrypted connection via the handshake.
 //!
 //! See the [“Handshake”][protocol-handshake] section of the protocol guide.
 //!
 //! ```no_run
 //! # use ssb::handshake::*;
+//! # use futures::prelude::*;
 //! # #[async_std::main]
-//! # async fn main () {
+//! # async fn main () -> Result<(), Box<dyn std::error::Error>> {
 //! let mut stream = async_std::net::TcpStream::connect("localhost:3000").await.unwrap();
 //! let network_identifier = [0u8; 32];
 //! let server_identity_pk = sodiumoxide::crypto::sign::gen_keypair().0;
@@ -16,7 +17,9 @@
 //!     &client_identity.0,
 //!     &client_identity.1,
 //! );
-//! let box_crypt_params = client.handshake(stream).await;
+//! let (mut encrypt, mut decrypt) = client.connect(stream).await?;
+//! encrypt.send(b"hello world".to_vec()).await?;
+//! # Ok(())
 //! # }
 //! ```
 //! [protocol-handshake]: https://ssbc.github.io/scuttlebutt-protocol-guide/#handshake
@@ -24,10 +27,10 @@
 // We allow this to align with the names used in the protocol guide.
 #![allow(non_snake_case)]
 
-use futures::io::{AsyncRead, AsyncWrite};
 use futures::prelude::*;
+use std::io;
 
-use crate::box_stream::{BoxCrypt, BoxStreamParams};
+use crate::box_stream::{box_stream, BoxCrypt, BoxStreamParams, DecryptError};
 use crate::crypto;
 
 /// Errors returned when running the handshake protocol.
@@ -84,7 +87,21 @@ impl Client {
         }
     }
 
-    pub async fn handshake(
+    pub async fn connect(
+        self,
+        mut stream: impl AsyncRead + AsyncWrite + Unpin,
+    ) -> Result<
+        (
+            impl Sink<Vec<u8>, Error = io::Error>,
+            impl Stream<Item = Result<Vec<u8>, DecryptError>>,
+        ),
+        Error,
+    > {
+        let params = self.handshake(&mut stream).await?;
+        Ok(box_stream(stream, params))
+    }
+
+    async fn handshake(
         self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
     ) -> Result<BoxStreamParams, Error> {
@@ -141,8 +158,22 @@ impl Server {
         }
     }
 
+    pub async fn accept(
+        self,
+        mut stream: impl AsyncRead + AsyncWrite + Unpin,
+    ) -> Result<
+        (
+            impl Sink<Vec<u8>, Error = io::Error>,
+            impl Stream<Item = Result<Vec<u8>, DecryptError>>,
+        ),
+        Error,
+    > {
+        let params = self.handshake(&mut stream).await?;
+        Ok(box_stream(stream, params))
+    }
+
     /// Execute the handshake protocol for the server.
-    pub async fn handshake(
+    async fn handshake(
         self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
     ) -> Result<BoxStreamParams, Error> {

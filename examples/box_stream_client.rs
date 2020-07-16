@@ -2,7 +2,7 @@
 use async_std::net::TcpStream;
 use futures::prelude::*;
 use sodiumoxide::crypto::{hash::sha256, sign};
-use ssb::{box_stream, handshake};
+use ssb::handshake;
 use std::convert::TryFrom;
 use std::io::Write as _;
 
@@ -23,13 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         &client_identity.1,
     );
 
-    let mut stream = TcpStream::connect("localhost:3000").await?;
-
-    let box_stream_params = client.handshake(&mut stream).await?;
-
+    let stream = TcpStream::connect("localhost:3000").await?;
+    let (mut encrypt, mut decrypt) = client.connect(stream).await?;
     println!("Connected");
-
-    let (mut encrypt, mut decrypt) = box_stream(stream, box_stream_params);
 
     let stdin = async_std::io::stdin();
 

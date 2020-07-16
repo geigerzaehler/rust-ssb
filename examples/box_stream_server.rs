@@ -2,7 +2,7 @@
 use async_std::net::{TcpListener, TcpStream};
 use futures::prelude::*;
 use sodiumoxide::crypto::{hash::sha256, sign};
-use ssb::{box_stream, handshake};
+use ssb::handshake;
 use std::convert::TryFrom;
 
 #[async_std::main]
@@ -21,10 +21,8 @@ fn handle_connection(mut stream: TcpStream) {
             sign::keypair_from_seed(&sign::Seed::from_slice(&hash(&"server")).unwrap());
         let server =
             handshake::Server::new(&network_identifier, &server_identity.0, &server_identity.1);
-        let box_stream_params = server.handshake(&mut stream).await.unwrap();
+        let (mut encrypt, mut decrypt) = server.accept(&mut stream).await.unwrap();
         println!("Accepted client");
-
-        let (mut encrypt, mut decrypt) = box_stream(stream, box_stream_params);
 
         encrypt.send(b"hello".to_vec()).await.unwrap();
         loop {
