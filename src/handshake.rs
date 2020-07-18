@@ -61,6 +61,8 @@ pub enum Error {
     #[error("Invalid signature in `accept` message")]
     AcceptSignatureInvalid,
 }
+
+#[derive(Debug)]
 pub struct Client {
     endpoint: Endpoint,
     server_identity: crypto::sign::PublicKey,
@@ -135,6 +137,7 @@ impl Client {
 }
 
 /// Parameters to execute a handshake from the server side
+#[derive(Debug)]
 pub struct Server {
     endpoint: Endpoint,
 }

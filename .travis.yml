@@ -16,5 +16,5 @@ before_install:
 install: true
 script:
 - cargo fmt --all -- --check
-- cargo clippy --locked --all-targets -- --deny clippy::all
+- cargo clippy --locked --all-targets -- --deny clippy::all --deny warnings
 - cargo test
