@@ -8,3 +8,6 @@ mod crypto;
 pub mod handshake;
 pub mod secret_file;
 mod utils;
+
+#[cfg(test)]
+mod test_utils;
