@@ -1,10 +1,19 @@
 language: rust
-rust:
-- stable
-- nightly
 cache: cargo
-install:
+
+jobs:
+  include:
+  - rust: stable
+  - rust: nightly
+  - rust: nightly
+    install: cargo update -Z minimal-versions
+  allow_failures:
+  - rust: nightly
+  fast_finish: true
+
+before_install:
 - rustup component add clippy rustfmt
+install: true
 script:
 - cargo fmt --all -- --check
 - cargo clippy --locked --all-targets -- --deny clippy::all
