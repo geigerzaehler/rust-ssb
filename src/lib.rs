@@ -3,11 +3,14 @@
 //! [protocol]: https://ssbc.github.io/scuttlebutt-protocol-guide
 
 #![warn(missing_debug_implementations)]
+
+#[cfg(test)]
+#[macro_use]
+mod test_utils;
+
 mod box_stream;
 mod crypto;
 pub mod handshake;
+pub mod rpc;
 pub mod secret_file;
 mod utils;
-
-#[cfg(test)]
-mod test_utils;
