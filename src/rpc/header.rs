@@ -1,6 +1,3 @@
-// proptest_derive generates code that fails this lint
-#![allow(clippy::unit_arg)]
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Header {
