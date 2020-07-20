@@ -20,9 +20,6 @@ jobs:
     rust: nightly
     install: cargo update -Z minimal-versions
 
-  allow_failures:
-  - rust: nightly
-
   fast_finish: true
 
 before_install:
