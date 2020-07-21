@@ -584,6 +584,25 @@ dependencies = [
 [[package]]
 name = "proptest"
 version = "0.10.0"
+source = "git+https://github.com/thomaseizinger/proptest?rev=215589dd021b16b2f0a7e71426a299d7c38a19ae#215589dd021b16b2f0a7e71426a299d7c38a19ae"
+dependencies = [
+ "bit-set",
+ "bitflags",
+ "byteorder",
+ "lazy_static",
+ "num-traits",
+ "quick-error",
+ "rand",
+ "rand_chacha",
+ "rand_xorshift",
+ "regex-syntax",
+ "rusty-fork",
+ "tempfile",
+]
+
+[[package]]
+name = "proptest"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2520fe6373cf6a3a61e2d200e987c183778ade8d9248ac3e6614ab0edfe4a0c1"
 dependencies = [
@@ -599,6 +618,17 @@ dependencies = [
  "regex-syntax",
  "rusty-fork",
  "tempfile",
+]
+
+[[package]]
+name = "proptest-attributes"
+version = "0.1.0"
+source = "git+https://github.com/thomaseizinger/proptest?rev=215589dd021b16b2f0a7e71426a299d7c38a19ae#215589dd021b16b2f0a7e71426a299d7c38a19ae"
+dependencies = [
+ "proc-macro2",
+ "proptest 0.10.0 (git+https://github.com/thomaseizinger/proptest?rev=215589dd021b16b2f0a7e71426a299d7c38a19ae)",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -836,7 +866,8 @@ dependencies = [
  "libsodium-sys",
  "pin-project",
  "pkg-config",
- "proptest",
+ "proptest 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "proptest-attributes",
  "serde",
  "serde_json",
  "sodiumoxide",

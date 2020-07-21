@@ -148,37 +148,35 @@ mod test {
         assert_eq!(0, u64::from_be_bytes(max_bytes))
     }
 
-    #[test]
-    fn box_crypt_roundtrip() {
-        proptest(any::<Vec<Vec<u8>>>(), |messages| {
-            let _ = sodiumoxide::init();
-            let mut decrypt = BoxCrypt::arbitrary();
-            let mut encrypt = decrypt.clone();
+    #[proptest]
+    fn box_crypt_roundtrip(messages: Vec<Vec<u8>>) {
+        let _ = sodiumoxide::init();
+        let mut decrypt = BoxCrypt::arbitrary();
+        let mut encrypt = decrypt.clone();
 
-            for message in messages {
-                if message.is_empty() {
-                    continue;
-                }
-                let packet = Packet::build(&message).pop().unwrap();
-                let message = Vec::from(&*packet);
-                let cipher_text = encrypt.encrypt(packet);
-
-                let mut boxed_header = [0u8; BOXED_HEADER_SIZE];
-                boxed_header.copy_from_slice(&cipher_text[0..BOXED_HEADER_SIZE]);
-                let (body_len, body_tag) = decrypt.decrypt_head(&boxed_header).unwrap().unwrap();
-
-                let cipher_body = &cipher_text[BOXED_HEADER_SIZE..];
-                assert_eq!(body_len as usize, cipher_body.len());
-
-                let msg_out = decrypt.decrypt_body(&body_tag, cipher_body).unwrap();
-                assert_eq!(*message, *msg_out);
+        for message in messages {
+            if message.is_empty() {
+                continue;
             }
+            let packet = Packet::build(&message).pop().unwrap();
+            let message = Vec::from(&*packet);
+            let cipher_text = encrypt.encrypt(packet);
 
-            let goodbye = encrypt.goodbye();
             let mut boxed_header = [0u8; BOXED_HEADER_SIZE];
-            boxed_header.copy_from_slice(&goodbye[0..BOXED_HEADER_SIZE]);
-            let result = decrypt.decrypt_head(&boxed_header).unwrap();
-            assert!(result.is_none());
-        })
+            boxed_header.copy_from_slice(&cipher_text[0..BOXED_HEADER_SIZE]);
+            let (body_len, body_tag) = decrypt.decrypt_head(&boxed_header).unwrap().unwrap();
+
+            let cipher_body = &cipher_text[BOXED_HEADER_SIZE..];
+            prop_assert_eq!(body_len as usize, cipher_body.len());
+
+            let msg_out = decrypt.decrypt_body(&body_tag, cipher_body).unwrap();
+            prop_assert_eq!(message, msg_out);
+        }
+
+        let goodbye = encrypt.goodbye();
+        let mut boxed_header = [0u8; BOXED_HEADER_SIZE];
+        boxed_header.copy_from_slice(&goodbye[0..BOXED_HEADER_SIZE]);
+        let result = decrypt.decrypt_head(&boxed_header).unwrap();
+        prop_assert!(result.is_none());
     }
 }

@@ -37,10 +37,10 @@ mod test {
     use super::*;
     use crate::test_utils::*;
 
-    #[test]
-    fn crypt_stream() {
-        async fn prop(messages: Vec<Vec<u8>>) {
-            let _ = sodiumoxide::init();
+    #[proptest]
+    fn crypt_stream(messages: Vec<Vec<u8>>) {
+        let _ = sodiumoxide::init();
+        async_std::task::block_on(async move {
             let params = BoxCrypt::arbitrary();
             let (writer, reader) = async_pipe::pipe();
             let reader = Decrypt::new(reader, params.clone());
@@ -54,23 +54,22 @@ mod test {
                 writer.close().await.unwrap();
             });
             let data_read = reader.try_concat().await.unwrap();
-            assert_eq!(*data_read, *data);
+            prop_assert_eq!(data_read, data);
             write_handle.await;
-        }
-        proptest_async(any::<Vec<Vec<u8>>>(), prop)
+            Ok(())
+        })?;
     }
 
-    #[test]
-    fn early_termination() {
-        let strategy = any::<Vec<u8>>().prop_flat_map(|vec| {
-            let len = vec.len();
-            (proptest::strategy::Just(vec), 0..=len)
-        });
-
-        async fn prop((data, cutoff): (Vec<u8>, usize)) {
-            let _ = sodiumoxide::init();
+    #[proptest]
+    fn early_termination(
+        #[strategy(proptest::collection::vec(any::<u8>(), 1..30))] data: Vec<u8>,
+        cutoff: proptest::sample::Index,
+    ) {
+        let _ = sodiumoxide::init();
+        async_std::task::block_on(async move {
             let params = BoxCrypt::arbitrary();
             let (raw_writer, raw_reader) = async_pipe::pipe();
+            let cutoff = cutoff.index(data.len());
             let raw_reader = raw_reader.take(cutoff as u64);
             let reader = Decrypt::new(raw_reader, params.clone());
             let mut writer = Encrypt::new(raw_writer, params);
@@ -83,11 +82,11 @@ mod test {
             let err = items.last().unwrap().as_ref().unwrap_err();
             match err {
                 DecryptError::Io(io_error) => {
-                    assert_eq!(io_error.kind(), std::io::ErrorKind::UnexpectedEof)
+                    prop_assert_eq!(io_error.kind(), std::io::ErrorKind::UnexpectedEof)
                 }
-                _ => panic!(),
+                _ => prop_assert!(false),
             }
-        }
-        proptest_async(strategy, prop)
+            Ok(())
+        })?;
     }
 }

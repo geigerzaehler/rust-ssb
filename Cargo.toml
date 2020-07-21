@@ -28,7 +28,7 @@ async-pipe = { version = "0.1.3", features = ["futures"] }
 async-std = { version = "1.3", features = ["attributes" ] }
 duplexify = "1.0"
 proptest = "0.10"
-
+proptest-attributes = { git = "https://github.com/thomaseizinger/proptest", rev = "215589dd021b16b2f0a7e71426a299d7c38a19ae" }
 [patch.crates-io.async-pipe]
 git = "https://github.com/geigerzaehler/async-pipe-rs"
 rev = "2181aa8800fc3d64d28a238c071d980333ea40c8"
