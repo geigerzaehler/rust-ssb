@@ -84,7 +84,7 @@ impl<Reader: AsyncRead> Decrypt<Reader> {
                 DecryptState::ReadingHeader { buffer } => {
                     let boxed_header = futures::ready!(buffer.poll_read(this.reader, cx))?;
                     let mut boxed_header_array = [0u8; BOXED_HEADER_SIZE];
-                    boxed_header_array.copy_from_slice(boxed_header);
+                    boxed_header_array.copy_from_slice(&boxed_header);
                     match this
                         .params
                         .decrypt_head(&boxed_header_array)
@@ -105,7 +105,7 @@ impl<Reader: AsyncRead> Decrypt<Reader> {
                     let boxed_body = futures::ready!(buffer.poll_read(this.reader, cx))?;
                     let body = this
                         .params
-                        .decrypt_body(auth_tag, boxed_body)
+                        .decrypt_body(auth_tag, &boxed_body)
                         .map_err(|()| DecryptError::UnboxBody)?;
                     *this.state = DecryptState::init();
                     return Poll::Ready(Some(Ok(body)));
