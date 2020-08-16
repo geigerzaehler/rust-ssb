@@ -9,6 +9,12 @@ pub enum Packet {
         #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
         number: u32,
         typ: RequestType,
+        #[cfg_attr(
+            test,
+            proptest(
+                strategy = "proptest::collection::vec(proptest::arbitrary::any::<String>(), 1..3)"
+            )
+        )]
         method: Vec<String>,
         #[cfg_attr(test, proptest(value = "vec![]"))]
         args: Vec<serde_json::value::Value>,
@@ -186,9 +192,10 @@ impl Packet {
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Body {
-    Blob(Vec<u8>),
-    String(String),
-    Json(Vec<u8>),
+    Blob(#[cfg_attr(test, proptest(filter = "|x| !x.is_empty()"))] Vec<u8>),
+    String(#[cfg_attr(test, proptest(filter = "|x| !x.is_empty()"))] String),
+    // TODO proptest arbritrary json value
+    Json(#[cfg_attr(test, proptest(value = "b\"{}\".to_vec()"))] Vec<u8>),
 }
 
 impl Body {
