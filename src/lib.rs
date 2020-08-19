@@ -2,7 +2,7 @@
 //!
 //! [protocol]: https://ssbc.github.io/scuttlebutt-protocol-guide
 
-#![warn(missing_debug_implementations)]
+#![warn(missing_debug_implementations, clippy::all)]
 
 #[cfg(test)]
 #[macro_use]

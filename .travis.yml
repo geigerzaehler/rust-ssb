@@ -1,30 +1,27 @@
 language: rust
 cache: cargo
 
+before_install:
+  - rustup component add clippy
+install: true
+
 jobs:
   include:
-  - name: "test (stable)"
-    rust: stable
+    - name: 'fmt'
+      rust: stable
+      before_install:
+        - rustup component add rustfmt
+      script:
+        - cargo fmt --all -- --check
 
-  - name: "fmt"
-    rust: stable
-    before_install:
-    - rustup component add rustfmt
-    script:
-    - cargo fmt --all -- --check
+    - name: 'test (stable)'
+      rust: stable
+      script: &test-script
+        - cargo clippy --locked --all-targets -- --deny clippy::all --deny warnings
+        - cargo test
 
-  - name: "test (nightly)"
-    rust: nightly
-
-  - name: "test (nightly, minimal-versions)"
-    rust: nightly
-    install: cargo update -Z minimal-versions
+    - name: 'test (nightly)'
+      rust: nightly
+      script: *test-script
 
   fast_finish: true
-
-before_install:
-- rustup component add clippy
-install: true
-script:
-- cargo clippy --locked --all-targets -- --deny clippy::all --deny warnings
-- cargo test
