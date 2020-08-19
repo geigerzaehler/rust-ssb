@@ -1,15 +1,18 @@
-use std::{fs, io, path::Path};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use crate::crypto;
 
 #[derive(thiserror::Error, Debug)]
 pub enum LoadError {
-    #[error("IO")]
-    Io(
+    #[error("Cannot read file {path}")]
+    ReadIo {
+        path: PathBuf,
         #[source]
-        #[from]
-        io::Error,
-    ),
+        error: io::Error,
+    },
     #[error("Unknown key scheme")]
     UnknownKeyScheme,
     #[error("Failed to decode base64 string")]
@@ -34,7 +37,10 @@ pub enum LoadError {
 
 /// Load secret key from an SSB "secret" file
 pub fn load(path: &Path) -> Result<crypto::sign::SecretKey, LoadError> {
-    let data = fs::read_to_string(path)?;
+    let data = fs::read_to_string(path).map_err(|error| LoadError::ReadIo {
+        path: path.to_owned(),
+        error,
+    })?;
     parse(&data)
 }
 
