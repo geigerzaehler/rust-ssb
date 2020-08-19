@@ -17,7 +17,7 @@ pub enum Packet {
         )]
         method: Vec<String>,
         #[cfg_attr(test, proptest(value = "vec![]"))]
-        args: Vec<serde_json::value::Value>,
+        args: Vec<serde_json::Value>,
     },
     AsyncResponse {
         #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
@@ -89,7 +89,7 @@ impl RequestType {
 struct RequestBody {
     name: Vec<String>,
     #[cfg_attr(test, proptest(value = "vec![]"))]
-    args: Vec<serde_json::value::Value>,
+    args: Vec<serde_json::Value>,
     #[serde(rename = "type")]
     typ: String,
 }

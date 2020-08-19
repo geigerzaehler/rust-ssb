@@ -85,7 +85,7 @@ where
     pub async fn send_async(
         &mut self,
         method: Vec<String>,
-        args: Vec<serde_json::value::Value>,
+        args: Vec<serde_json::Value>,
     ) -> Result<AsyncResponse, AsyncRequestError> {
         let request_number = self.next_request_number;
         self.next_request_number += 1;

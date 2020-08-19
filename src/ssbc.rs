@@ -96,7 +96,7 @@ impl GossipPeers {
 
         let response = match response {
             crate::rpc::AsyncResponse::Json(data) => {
-                let value = serde_json::from_slice::<serde_json::value::Value>(&data)
+                let value = serde_json::from_slice::<serde_json::Value>(&data)
                     .context("Failed to decode response")?;
                 serde_json::to_string_pretty(&value).unwrap()
             }
