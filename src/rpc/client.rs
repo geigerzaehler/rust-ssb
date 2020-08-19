@@ -34,8 +34,7 @@ where
             Arc::new(CHashMap::<u32, oneshot::Sender<AsyncResponse>>::new());
         let pending_async_requests2 = Arc::clone(&pending_async_requests);
         let packet_reader_task = async_std::task::spawn(async move {
-            let packet_stream = PacketStream::new(stream);
-            Self::consume_packets(packet_stream, &pending_async_requests2).await;
+            Self::consume_packets(stream, &pending_async_requests2).await;
         });
         Self {
             sink,
@@ -47,16 +46,20 @@ where
     }
 
     async fn consume_packets(
-        mut packet_stream: PacketStream<Stream_>,
+        stream: Stream_,
         pending_async_requests: &CHashMap<u32, oneshot::Sender<AsyncResponse>>,
     ) {
+        let mut packet_stream = PacketStream::new(stream);
         loop {
-            let packet = packet_stream.next().await;
-            let packet = match packet {
-                // TODO handle error
-                Some(packet) => packet.unwrap(),
+            let next_item = packet_stream.next().await;
+            let packet = match next_item {
+                Some(Ok(packet)) => packet,
+                // TOOO handle error
+                Some(Err(_err)) => todo!(),
+                // TOOO handle closing
                 None => break,
             };
+
             match packet {
                 Packet::AsyncResponse { number, body } => {
                     pending_async_requests.alter(number, |opt_respond| {
