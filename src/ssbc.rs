@@ -72,28 +72,33 @@ impl Options {
 
 #[derive(StructOpt)]
 enum Command {
-    GossipPeers(GossipPeers),
+    Call(Call),
 }
 
 impl Command {
     async fn run(&self, options: Options) -> anyhow::Result<()> {
         match self {
-            Self::GossipPeers(cmd) => cmd.run(options).await,
+            Self::Call(cmd) => cmd.run(options).await,
         }
     }
 }
-
 #[derive(StructOpt)]
-/// List peers of the gossip protocol the server is connected to
-struct GossipPeers {}
+/// Call an RPC method without arguments and print the response
+struct Call {
+    /// Method path delimited with a dot (.)
+    method: String,
+}
 
-impl GossipPeers {
+impl Call {
     async fn run(&self, options: Options) -> anyhow::Result<()> {
-        let mut client = options.client().await?;
-        let response = client
-            .send_async(vec!["gossip".to_string(), "peers".to_string()], vec![])
-            .await?;
+        let method = self
+            .method
+            .split('.')
+            .map(std::borrow::ToOwned::to_owned)
+            .collect();
 
+        let mut client = options.client().await?;
+        let response = client.send_async(method, vec![]).await?;
         let response = match response {
             crate::rpc::AsyncResponse::Json(data) => {
                 let value = serde_json::from_slice::<serde_json::Value>(&data)
@@ -101,7 +106,10 @@ impl GossipPeers {
                 serde_json::to_string_pretty(&value).unwrap()
             }
             crate::rpc::AsyncResponse::String(string) => string,
-            other => format!("{:#?}", other),
+            crate::rpc::AsyncResponse::Blob(_data) => "Refusing to print binary data".to_string(),
+            crate::rpc::AsyncResponse::Error { name, message } => {
+                anyhow::bail!("RPC error \"{}\": {}", name, message)
+            }
         };
         println!("{}", response);
         Ok(())
