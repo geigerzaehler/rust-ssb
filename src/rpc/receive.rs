@@ -44,10 +44,10 @@ impl<Stream> PacketStream<Stream> {
     }
 }
 
-impl<Stream_, Error> Stream for PacketStream<Stream_>
+impl<Stream_> Stream for PacketStream<Stream_>
 where
-    Stream_: Stream<Item = Result<Vec<u8>, Error>>,
-    Error: std::error::Error + 'static,
+    Stream_: TryStream<Ok = Vec<u8>>,
+    Stream_::Error: std::error::Error + 'static,
 {
     type Item = Result<Packet, NextPacketError>;
 
@@ -56,7 +56,7 @@ where
             let mut this = self.as_mut().project();
 
             if this.buffer.is_empty() {
-                match futures::ready!(this.stream.poll_next(cx)) {
+                match futures::ready!(this.stream.try_poll_next(cx)) {
                     Some(Ok(data)) => *this.buffer = bytes::Bytes::from(data),
                     Some(Err(err)) => {
                         return Poll::Ready(Some(Err(NextPacketError::Source(Box::new(err)))))
