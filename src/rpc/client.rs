@@ -5,7 +5,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use super::packet::{self, Packet, RequestType};
-use super::receive::PacketStream;
+use super::packet_stream::PacketStream;
 
 type ClientSink = dyn Sink<Vec<u8>, Error = Box<dyn std::error::Error + Send + Sync + 'static>>;
 

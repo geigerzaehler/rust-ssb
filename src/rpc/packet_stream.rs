@@ -1,3 +1,5 @@
+//! Provides [PacketStream] for parsing RPC packets from a byte stream.
+
 use futures::prelude::*;
 use std::pin::Pin;
 use std::task::{Context, Poll};
