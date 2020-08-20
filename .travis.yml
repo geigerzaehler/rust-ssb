@@ -27,6 +27,6 @@ jobs:
     - name: 'docs (nightly)'
       rust: nightly
       script:
-        - RUSTDOCFLAGS="-D intra-doc-link-resolution-failure" cargo doc --all-targets --no-deps --document-private-items
+        - RUSTDOCFLAGS="-D intra-doc-link-resolution-failure" cargo doc --no-deps --document-private-items
 
   fast_finish: true
