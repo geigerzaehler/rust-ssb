@@ -6,7 +6,6 @@ use std::sync::Arc;
 
 use super::packet::{self, Packet, RequestType};
 use super::receive::PacketStream;
-use crate::utils::DynError;
 
 type ClientSink = dyn Sink<Vec<u8>, Error = Box<dyn std::error::Error + Send + Sync + 'static>>;
 
@@ -110,11 +109,10 @@ impl Client {
         };
         let (sender, receiver) = oneshot::channel();
         self.pending_async_requests.insert(request_number, sender);
-        self.sink.send(packet.build()).await.map_err(
-            |error: Box<dyn std::error::Error + Send + Sync>| AsyncRequestError::Send {
-                error: DynError::from(error),
-            },
-        )?;
+        self.sink
+            .send(packet.build())
+            .await
+            .map_err(|error| AsyncRequestError::Send { error })?;
         Ok(receiver
             .await
             .expect("Response channel dropped. Possible reuse of request number"))
@@ -164,6 +162,6 @@ pub enum AsyncRequestError {
     Send {
         // TODO make this generic
         #[source]
-        error: DynError,
+        error: Box<dyn std::error::Error + Send + Sync + 'static>,
     },
 }
