@@ -160,7 +160,6 @@ impl From<packet::Body> for AsyncResponse {
 pub enum AsyncRequestError {
     #[error("Failed to send request")]
     Send {
-        // TODO make this generic
         #[source]
         error: Box<dyn std::error::Error + Send + Sync + 'static>,
     },

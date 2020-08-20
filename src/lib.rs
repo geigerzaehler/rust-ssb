@@ -4,6 +4,9 @@
 
 #![warn(missing_debug_implementations, clippy::all)]
 
+#[macro_use]
+extern crate prettytable;
+
 #[cfg(test)]
 #[macro_use]
 mod test_utils;

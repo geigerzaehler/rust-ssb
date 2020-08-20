@@ -1,5 +1,6 @@
 use crate::{crypto, handshake, SCUTTLEBUT_NETWORK_IDENTIFIER};
 use anyhow::Context as _;
+use std::collections::HashMap;
 use structopt::StructOpt;
 
 pub async fn main() -> anyhow::Result<()> {
@@ -39,7 +40,7 @@ struct Options {
 }
 
 impl Options {
-    async fn client(&self) -> anyhow::Result<crate::rpc::base::Client> {
+    async fn client(&self) -> anyhow::Result<crate::rpc::ssb::Client> {
         let client_identity_sk = if self.anonymous {
             crypto::sign::gen_keypair().1
         } else {
@@ -69,7 +70,7 @@ impl Options {
             .connect(stream)
             .await
             .context("Failed to establish encrypted connection with server")?;
-        let client = crate::rpc::base::Client::new(encrypt, decrypt);
+        let client = crate::rpc::ssb::Client::new(encrypt, decrypt);
         Ok(client)
     }
 
@@ -85,12 +86,14 @@ impl Options {
 #[derive(StructOpt)]
 enum Command {
     Call(Call),
+    Manifest(Manifest),
 }
 
 impl Command {
     async fn run(&self, options: Options) -> anyhow::Result<()> {
         match self {
-            Self::Call(cmd) => cmd.run(options).await,
+            Self::Call(x) => x.run(options).await,
+            Self::Manifest(x) => x.run(options).await,
         }
     }
 }
@@ -110,7 +113,7 @@ impl Call {
             .collect();
 
         let mut client = options.client().await?;
-        let response = client.send_async(method, vec![]).await?;
+        let response = client.base().send_async(method, vec![]).await?;
         let response = match response {
             crate::rpc::base::AsyncResponse::Json(data) => {
                 let value = serde_json::from_slice::<serde_json::Value>(&data)
@@ -128,4 +131,82 @@ impl Call {
         println!("{}", response);
         Ok(())
     }
+}
+
+#[derive(StructOpt)]
+/// Prints RPC methods the server supports
+struct Manifest {}
+
+impl Manifest {
+    async fn run(&self, options: Options) -> anyhow::Result<()> {
+        let mut client = options.client().await?;
+
+        let manifest = client.manifest().await?;
+
+        let mut table = new_table();
+        table.set_titles(prettytable::row![b => "METHOD", "TYPE", "DESCRIPTION"]);
+
+        let help = client.help(None).await?;
+
+        for (name, command) in help.methods {
+            table.add_row(prettytable::row![i -> name, command.type_, command.description]);
+        }
+
+        for (group, group_manifest) in manifest.groups {
+            if group_manifest
+                .methods
+                .iter()
+                .any(|method| method.name == "help")
+            {
+                let help = client.help(Some(&*group)).await?;
+                for (name, command) in help.methods {
+                    table.add_row(prettytable::row![i -> format!("{}.{}", group, name), command.type_, command.description]);
+                }
+            } else {
+                for method in group_manifest.methods {
+                    table.add_row(
+                        prettytable::row![i -> format!("{}.{}", group, method.name), method.type_],
+                    );
+                }
+            }
+        }
+
+        table.printstd();
+
+        Ok(())
+    }
+}
+
+fn new_table() -> prettytable::Table {
+    let mut table = prettytable::Table::new();
+    let format = prettytable::format::FormatBuilder::new()
+        .column_separator(' ')
+        .padding(0, 2)
+        .build();
+    table.set_format(format);
+    table
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct ManifestHelp {
+    description: String,
+    commands: HashMap<String, ManifestHelpCommand>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct ManifestHelpCommand {
+    description: String,
+    #[serde(rename = "type")]
+    type_: String,
+    args: HashMap<String, ManifestHelpCommandArg>,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct ManifestHelpCommandArg {
+    description: Option<String>,
+    #[serde(rename = "type")]
+    type_: String,
+    #[serde(default)]
+    optional: bool,
+    default: Option<serde_json::Value>,
 }
