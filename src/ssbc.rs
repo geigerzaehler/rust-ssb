@@ -32,6 +32,10 @@ struct Options {
 
     #[structopt(long, default_value = "localhost:8008")]
     server: String,
+
+    /// Base64 encoded public key of the server
+    #[structopt(long, parse(try_from_str = Options::parse_server_id))]
+    server_id: Option<crypto::sign::PublicKey>,
 }
 
 impl Options {
@@ -48,7 +52,7 @@ impl Options {
         };
 
         let client_identity_pk = client_identity_sk.public_key();
-        let server_identity_pk = client_identity_pk;
+        let server_identity_pk = self.server_id.unwrap_or(client_identity_pk);
 
         let client = handshake::Client::new(
             &SCUTTLEBUT_NETWORK_IDENTIFIER,
@@ -67,6 +71,14 @@ impl Options {
             .context("Failed to establish encrypted connection with server")?;
         let client = crate::rpc::Client::new(encrypt, decrypt);
         Ok(client)
+    }
+
+    fn parse_server_id(value: &str) -> anyhow::Result<crypto::sign::PublicKey> {
+        let bytes = base64::decode(value)?;
+        if bytes.len() != crypto::sign::PUBLICKEYBYTES {
+            anyhow::bail!("invalid size public key size");
+        }
+        Ok(crypto::sign::PublicKey::from_slice(&bytes).unwrap())
     }
 }
 
