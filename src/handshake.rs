@@ -54,8 +54,11 @@ pub enum Error {
     #[error("Invalid signature in `authenticate` message")]
     AuthenticateSignatureInvalid,
 
+    #[error("Server did not accept handshake. Server identity may be wrong")]
+    AcceptConnectionClosed,
+
     /// Failed to decrypt `accept` message
-    #[error("Failed to decrypt `accept` message")]
+    #[error("Failed to decrypt `accept` message. Client may have used the wrong key")]
     AcceptMessageDecryptFailed,
     /// Invalid signature in `accept` message
     #[error("Invalid signature in `accept` message")]
@@ -103,6 +106,11 @@ impl Client {
         Ok(box_stream(stream, params))
     }
 
+    #[tracing::instrument(
+        name = "Client::handshake"
+        skip(self, stream),
+        fields(server = base64::encode(&self.server_identity).as_str()))
+    ]
     async fn handshake(
         self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
@@ -114,6 +122,7 @@ impl Client {
 
         let hello_msg = read_hello_bytes(&mut stream).await?;
         let server_session_pk = self.endpoint.hello_verify(hello_msg)?;
+        tracing::debug!("received hello");
         let authenticate = Authenticate::for_client(&self, &server_session_pk);
 
         let msg = authenticate_message(&self, &authenticate);
@@ -121,10 +130,13 @@ impl Client {
 
         let accept = Accept::for_client(&self, authenticate);
         let mut reply = [0u8; 80];
-        stream
-            .read_exact(&mut reply)
-            .await
-            .map_err(Error::ReadFailed)?;
+        stream.read_exact(&mut reply).await.map_err(|error| {
+            if error.kind() == io::ErrorKind::UnexpectedEof {
+                Error::AcceptConnectionClosed
+            } else {
+                Error::ReadFailed(error)
+            }
+        })?;
         accept_message_verify(&self, &accept, reply)?;
 
         Ok(box_stream_params(
@@ -176,12 +188,14 @@ impl Server {
     }
 
     /// Execute the handshake protocol for the server.
+    #[tracing::instrument(name = "Server::handshake", skip(self, stream))]
     async fn handshake(
         self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
     ) -> Result<BoxStreamParams, Error> {
         let hello_msg = read_hello_bytes(&mut stream).await?;
         let client_session_pk = self.endpoint.hello_verify(hello_msg)?;
+        tracing::debug!("received hello");
         let authenticate = Authenticate::for_server(&self, &client_session_pk);
 
         stream
@@ -195,6 +209,7 @@ impl Server {
             .await
             .map_err(Error::ReadFailed)?;
 
+        tracing::debug!("received authenticate");
         let accept = authenticate_message_verify(&self, authenticate, &authenticate_msg)?;
 
         let accept_message = accept_message(&self, &accept);
@@ -520,13 +535,10 @@ mod test {
 
     #[async_std::test]
     async fn run() {
+        let _ = tracing_subscriber::fmt::try_init();
         let _ = sodiumoxide::init();
 
-        let (server_writer, server_reader) = async_pipe::pipe();
-        let (client_writer, client_reader) = async_pipe::pipe();
-
-        let mut client_stream = duplexify::Duplex::new(server_reader, client_writer);
-        let mut server_stream = duplexify::Duplex::new(client_reader, server_writer);
+        let (mut client_stream, mut server_stream) = duplex_pipe();
 
         let network_identifier = [0u8; 32];
         let server_identity = crypto::sign::gen_keypair();
@@ -550,5 +562,52 @@ mod test {
 
         assert_eq!(client_params.encrypt, server_params.decrypt);
         assert_eq!(client_params.decrypt, server_params.encrypt);
+    }
+
+    #[async_std::test]
+    async fn client_with_invalid_server_key() {
+        let _ = tracing_subscriber::fmt::try_init();
+        let _ = sodiumoxide::init();
+
+        let (mut client_stream, mut server_stream) = duplex_pipe();
+
+        let network_identifier = [0u8; 32];
+        let server_identity = crypto::sign::gen_keypair();
+        let server = Server::new(&network_identifier, &server_identity.0, &server_identity.1);
+
+        let client_identity = crypto::sign::gen_keypair();
+        let (invalid_server_pk, _) = crypto::sign::gen_keypair();
+        let client = Client::new(
+            &network_identifier,
+            &invalid_server_pk,
+            &client_identity.0,
+            &client_identity.1,
+        );
+
+        let (client_result, server_result) =
+            futures::join!(client.handshake(&mut client_stream), async move {
+                let result = server.handshake(&mut server_stream).await;
+                server_stream.close().await.unwrap();
+                result
+            });
+
+        match client_result {
+            Err(Error::AcceptConnectionClosed) => (),
+            other => panic!("unexpected result {:?}", other),
+        }
+
+        match server_result {
+            Err(Error::AuthenticateMessageDecryptFailed) => (),
+            other => panic!("unexpected result {:?}", other),
+        }
+    }
+
+    fn duplex_pipe() -> (impl AsyncRead + AsyncWrite, impl AsyncRead + AsyncWrite) {
+        let (a_writer, a_reader) = async_pipe::pipe();
+        let (b_writer, b_reader) = async_pipe::pipe();
+
+        let a_to_b = duplexify::Duplex::new(b_reader, a_writer);
+        let b_to_a = duplexify::Duplex::new(a_reader, b_writer);
+        (a_to_b, b_to_a)
     }
 }
