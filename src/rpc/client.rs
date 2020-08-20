@@ -1,35 +1,40 @@
 use chashmap::CHashMap;
 use futures::channel::oneshot;
 use futures::prelude::*;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use super::packet::{self, Packet, RequestType};
 use super::receive::PacketStream;
 use crate::utils::DynError;
 
-#[derive(Debug)]
-pub struct Client<Sink, Stream> {
-    sink: Sink,
+type ClientSink = dyn Sink<Vec<u8>, Error = Box<dyn std::error::Error + Send + Sync + 'static>>;
+
+pub struct Client {
+    sink: Pin<Box<ClientSink>>,
     next_request_number: u32,
     pending_async_requests: Arc<CHashMap<u32, oneshot::Sender<AsyncResponse>>>,
     packet_reader_task: async_std::task::JoinHandle<()>,
-    _stream: std::marker::PhantomData<Stream>,
 }
 
-/// A [Client] that erases all type parameters
-pub type BoxClient = Client<
-    Box<dyn Sink<Vec<u8>, Error = DynError> + Unpin>,
-    Box<dyn Stream<Item = Result<Vec<u8>, DynError>> + Unpin + Send + 'static>,
->;
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client")
+            .field("sink", &"Pin<Box<dyn Sink>>")
+            .field("pending_async_requests", &self.pending_async_requests)
+            .field("packet_reader_task", &self.packet_reader_task)
+            .finish()
+    }
+}
 
-impl<Sink_, Stream_, StreamError_> Client<Sink_, Stream_>
-where
-    Sink_: Sink<Vec<u8>> + Unpin + 'static,
-    Stream_: Stream<Item = Result<Vec<u8>, StreamError_>> + Unpin + Send + 'static,
-    StreamError_: std::error::Error + Send + Sync + 'static,
-    Sink_::Error: std::error::Error + Send + Sync + 'static,
-{
-    pub fn new(sink: Sink_, stream: Stream_) -> Self {
+impl Client {
+    pub fn new<Sink_, Stream_>(sink: Sink_, stream: Stream_) -> Self
+    where
+        Sink_: Sink<Vec<u8>> + Unpin + 'static,
+        Sink_::Error: std::error::Error + Send + Sync + 'static,
+        Stream_: TryStream<Ok = Vec<u8>> + Send + Unpin + 'static,
+        Stream_::Error: std::error::Error + 'static,
+    {
         let pending_async_requests =
             Arc::new(CHashMap::<u32, oneshot::Sender<AsyncResponse>>::new());
         let pending_async_requests2 = Arc::clone(&pending_async_requests);
@@ -37,27 +42,31 @@ where
             Self::consume_packets(stream, &pending_async_requests2).await;
         });
         Self {
-            sink,
+            sink: Box::pin(sink.sink_map_err(|error| {
+                Box::new(error) as Box<dyn std::error::Error + Send + Sync + 'static>
+            })),
             next_request_number: 1,
             pending_async_requests,
             packet_reader_task,
-            _stream: std::marker::PhantomData,
         }
     }
 
-    async fn consume_packets(
+    async fn consume_packets<Stream_>(
         stream: Stream_,
         pending_async_requests: &CHashMap<u32, oneshot::Sender<AsyncResponse>>,
-    ) {
+    ) where
+        Stream_: TryStream<Ok = Vec<u8>> + Unpin,
+        Stream_::Error: std::error::Error + 'static,
+    {
         let mut packet_stream = PacketStream::new(stream);
         loop {
-            let next_item = packet_stream.next().await;
+            let next_item = packet_stream.try_next().await;
             let packet = match next_item {
-                Some(Ok(packet)) => packet,
-                // TOOO handle error
-                Some(Err(_err)) => todo!(),
+                Ok(Some(packet)) => packet,
                 // TOOO handle closing
-                None => break,
+                Ok(None) => break,
+                // TOOO handle error
+                Err(_err) => todo!(),
             };
 
             match packet {
@@ -101,32 +110,14 @@ where
         };
         let (sender, receiver) = oneshot::channel();
         self.pending_async_requests.insert(request_number, sender);
-        self.sink
-            .send(packet.build())
-            .await
-            .map_err(|error| AsyncRequestError::Send {
-                error: DynError::new(error),
-            })?;
+        self.sink.send(packet.build()).await.map_err(
+            |error: Box<dyn std::error::Error + Send + Sync>| AsyncRequestError::Send {
+                error: DynError::from(error),
+            },
+        )?;
         Ok(receiver
             .await
             .expect("Response channel dropped. Possible reuse of request number"))
-    }
-
-    pub fn boxed(self) -> BoxClient {
-        let Self {
-            sink,
-            next_request_number,
-            pending_async_requests,
-            packet_reader_task,
-            _stream,
-        } = self;
-        Client {
-            sink: Box::new(sink.sink_map_err(DynError::new)),
-            next_request_number,
-            pending_async_requests,
-            packet_reader_task,
-            _stream: std::marker::PhantomData,
-        }
     }
 }
 

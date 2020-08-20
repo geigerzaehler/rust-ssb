@@ -35,7 +35,7 @@ struct Options {
 }
 
 impl Options {
-    async fn client(&self) -> anyhow::Result<crate::rpc::BoxClient> {
+    async fn client(&self) -> anyhow::Result<crate::rpc::Client> {
         let client_identity_sk = if self.anonymous {
             crypto::sign::gen_keypair().1
         } else {
@@ -66,7 +66,7 @@ impl Options {
             .await
             .context("Failed to establish encrypted connection with server")?;
         let client = crate::rpc::Client::new(encrypt, decrypt);
-        Ok(client.boxed())
+        Ok(client)
     }
 }
 
