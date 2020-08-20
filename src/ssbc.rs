@@ -39,7 +39,7 @@ struct Options {
 }
 
 impl Options {
-    async fn client(&self) -> anyhow::Result<crate::rpc::Client> {
+    async fn client(&self) -> anyhow::Result<crate::rpc::base::Client> {
         let client_identity_sk = if self.anonymous {
             crypto::sign::gen_keypair().1
         } else {
@@ -69,7 +69,7 @@ impl Options {
             .connect(stream)
             .await
             .context("Failed to establish encrypted connection with server")?;
-        let client = crate::rpc::Client::new(encrypt, decrypt);
+        let client = crate::rpc::base::Client::new(encrypt, decrypt);
         Ok(client)
     }
 
@@ -112,14 +112,16 @@ impl Call {
         let mut client = options.client().await?;
         let response = client.send_async(method, vec![]).await?;
         let response = match response {
-            crate::rpc::AsyncResponse::Json(data) => {
+            crate::rpc::base::AsyncResponse::Json(data) => {
                 let value = serde_json::from_slice::<serde_json::Value>(&data)
                     .context("Failed to decode response")?;
                 serde_json::to_string_pretty(&value).unwrap()
             }
-            crate::rpc::AsyncResponse::String(string) => string,
-            crate::rpc::AsyncResponse::Blob(_data) => "Refusing to print binary data".to_string(),
-            crate::rpc::AsyncResponse::Error { name, message } => {
+            crate::rpc::base::AsyncResponse::String(string) => string,
+            crate::rpc::base::AsyncResponse::Blob(_data) => {
+                "Refusing to print binary data".to_string()
+            }
+            crate::rpc::base::AsyncResponse::Error { name, message } => {
                 anyhow::bail!("RPC error \"{}\": {}", name, message)
             }
         };
