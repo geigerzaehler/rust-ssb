@@ -1,6 +1,5 @@
 use crate::{crypto, handshake, SCUTTLEBUT_NETWORK_IDENTIFIER};
 use anyhow::Context as _;
-use std::collections::HashMap;
 use structopt::StructOpt;
 
 pub async fn main() -> anyhow::Result<()> {
@@ -185,28 +184,4 @@ fn new_table() -> prettytable::Table {
         .build();
     table.set_format(format);
     table
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct ManifestHelp {
-    description: String,
-    commands: HashMap<String, ManifestHelpCommand>,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct ManifestHelpCommand {
-    description: String,
-    #[serde(rename = "type")]
-    type_: String,
-    args: HashMap<String, ManifestHelpCommandArg>,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct ManifestHelpCommandArg {
-    description: Option<String>,
-    #[serde(rename = "type")]
-    type_: String,
-    #[serde(default)]
-    optional: bool,
-    default: Option<serde_json::Value>,
 }
