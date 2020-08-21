@@ -36,7 +36,7 @@ struct Options {
 
     /// <hostname:port> pair to connect to the server.
     #[structopt(long, default_value = "localhost:8008")]
-    server: std::net::SocketAddr,
+    server: String,
 
     /// Base64 encoded public key of the server
     #[structopt(long, parse(try_from_str = Options::parse_server_id))]
