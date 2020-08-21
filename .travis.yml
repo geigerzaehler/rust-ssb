@@ -3,7 +3,6 @@ cache: cargo
 
 before_install:
   - rustup component add clippy
-install: true
 
 jobs:
   include:
@@ -14,15 +13,18 @@ jobs:
       script:
         - cargo fmt --all -- --check
 
-    - name: 'test (stable)'
+    - &test
+      name: 'test (stable)'
       rust: stable
+      services: [docker]
       script: &test-script
         - cargo clippy --locked --all-targets -- --deny clippy::all --deny warnings
+        - DETACH=true ./tests/ssb-server.sh
         - cargo test
 
-    - name: 'test (nightly)'
+    - <<: *test
+      name: 'test (nightly)'
       rust: nightly
-      script: *test-script
 
     - name: 'docs (nightly)'
       rust: nightly

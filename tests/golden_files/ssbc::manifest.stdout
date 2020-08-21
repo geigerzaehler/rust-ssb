@@ -1,0 +1,56 @@
+
+METHOD                       TYPE     DESCRIPTION  
+add                          async    append a valid message  
+blobs.add                    sink     add a blob  
+blobs.get                    source   get a blob  
+blobs.getSlice               source   get part of a blob  
+blobs.has                    async    check if a blob is in the local store  
+blobs.ls                     source   list all blobs  
+blobs.push                   async    ask the network to take the blob, wait until at least 3 peers have it  
+blobs.rm                     async    remove a blob from the local store  
+blobs.size                   async    get the size for a blob in the local store  
+blobs.want                   async    request a blob from the network, wait until found or timeout  
+createHistoryStream          source   output messages from a feed in order  
+createLogStream              source   stream of all locally stored messages, in order received  
+ebt.block                    sync       
+ebt.peerStatus               sync       
+ebt.replicate                duplex     
+ebt.request                  sync       
+friends.createFriendStream   source   same as `stream`, but output is series of `{id: <FeedId>, hops: <hops>}`  
+friends.get                  async    dump internal state of friends plugin, the stored follow graph  
+friends.hopStream            source   stream real time changes to hops. output is series of `{<FeedId>: <hops>,...}` merging these together will give the output of hops  
+friends.hops                 async    dump the map of hops, show all feeds, and how far away they are from start  
+friends.isBlocking           async    check if a feed is blocking another  
+friends.isFollowing          async    check if a feed is following another  
+friends.stream               source   stream real time changes to graph. of hops, output of `get`, followed by {from: <FeedId>, to: <FeedId>: value: true|null|false, where true represents follow, null represents unfollow, and false represents block.  
+get                          async    retrive a locally stored message  
+gossip.add                   sync     add peer to table  
+gossip.changes               source   stream of changes to peers table  
+gossip.connect               sync     connect to a peer  
+gossip.disable               sync     disable gossip  
+gossip.disconnect            sync     disconnect from a peer  
+gossip.enable                sync     enable gossip  
+gossip.reconnect             sync     reconnect to all peers  
+gossip.rm                    sync     remove peer from table  
+invite.accept                async      
+invite.create                async      
+invite.use                   async      
+links2.read                  source   perform a query  
+multiserver.address          sync       
+multiserver.parse            sync       
+ooo.get                      async    get a message  
+plugins.disable              async    disable an installed plugin (without uninstalling), must restart ssb-server afterwards  
+plugins.enable               async    enable an installed plugin, must restart ssb-server afterwards  
+plugins.install              source   install a plugin  
+plugins.uninstall            source   remove a plugin  
+progress                     sync     show internal progress  
+publish                      async    publish a message  
+query.explain                sync     return object describing indexes ssb-query will use for this query, useful for debugging performance problems  
+query.read                   source   perform a query  
+replicate.block              sync       
+replicate.changes            source     
+replicate.request            sync       
+replicate.upto               source     
+status                       sync     show internal system statuses  
+version                      sync     show version numbers  
+whoami                       sync     print main identity  
