@@ -1,3 +1,4 @@
+//! [load] SSB identity keys from "secret" file.
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -7,23 +8,31 @@ use crate::crypto;
 
 #[derive(thiserror::Error, Debug)]
 pub enum LoadError {
+    /// Failed to read file
     #[error("Cannot read file {path}")]
     ReadIo {
         path: PathBuf,
         #[source]
         error: io::Error,
     },
+
+    /// Unknown key scheme used in the secret file
     #[error("Unknown key scheme")]
     UnknownKeyScheme,
+
+    /// Failed to decode base64 string
     #[error("Failed to decode base64 string")]
     Base64(
         #[source]
         #[from]
         base64::DecodeError,
     ),
+
+    /// Invalid length of the secret key
     #[error("Invalid secret key length {0}")]
     InvalidSecretKeyLength(usize),
 
+    /// Failed to decode secret file as JSON
     #[error("Failed to decode JSON")]
     Json(
         #[source]
@@ -31,6 +40,7 @@ pub enum LoadError {
         serde_json::Error,
     ),
 
+    /// The home dir is not set.
     #[error("Cannot determine home directory")]
     NoHomeDir,
 }
