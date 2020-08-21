@@ -9,6 +9,10 @@ use super::packet_stream::PacketStream;
 
 type ClientSink = dyn Sink<Vec<u8>, Error = Box<dyn std::error::Error + Send + Sync + 'static>>;
 
+/// Client for an application agnostic RPC protocol described in the [Scuttlebutt
+/// Protocol Guide][ssb-prot].
+///
+/// [ssb-prot]: https://ssbc.github.io/scuttlebutt-protocol-guide/#rpc-protocol
 pub struct Client {
     sink: Pin<Box<ClientSink>>,
     next_request_number: u32,
@@ -27,21 +31,25 @@ impl std::fmt::Debug for Client {
 }
 
 impl Client {
-    pub fn new<Sink_, Stream_>(sink: Sink_, stream: Stream_) -> Self
+    /// Create a new client from a duplex raw byte connection
+    ///
+    /// Data is send using `send` and received through `receive`. This function
+    /// starts a background task to read all data arriving on `stream`.
+    pub fn new<Sink_, TryStream_>(send: Sink_, receive: TryStream_) -> Self
     where
         Sink_: Sink<Vec<u8>> + Unpin + 'static,
         Sink_::Error: std::error::Error + Send + Sync + 'static,
-        Stream_: TryStream<Ok = Vec<u8>> + Send + Unpin + 'static,
-        Stream_::Error: std::error::Error + 'static,
+        TryStream_: TryStream<Ok = Vec<u8>> + Send + Unpin + 'static,
+        TryStream_::Error: std::error::Error + 'static,
     {
         let pending_async_requests =
             Arc::new(CHashMap::<u32, oneshot::Sender<AsyncResponse>>::new());
         let pending_async_requests2 = Arc::clone(&pending_async_requests);
         let packet_reader_task = async_std::task::spawn(async move {
-            Self::consume_packets(stream, &pending_async_requests2).await;
+            Self::consume_packets(receive, &pending_async_requests2).await;
         });
         Self {
-            sink: Box::pin(sink.sink_map_err(|error| {
+            sink: Box::pin(send.sink_map_err(|error| {
                 Box::new(error) as Box<dyn std::error::Error + Send + Sync + 'static>
             })),
             next_request_number: 1,
@@ -50,14 +58,17 @@ impl Client {
         }
     }
 
+    /// Read bytes from `receive`, parse them as RPC [Packet]s and dispatch them.
+    ///
+    /// Returns when there is no data to read from `receive` anymore.
     async fn consume_packets<Stream_>(
-        stream: Stream_,
+        receive: Stream_,
         pending_async_requests: &CHashMap<u32, oneshot::Sender<AsyncResponse>>,
     ) where
         Stream_: TryStream<Ok = Vec<u8>> + Unpin,
         Stream_::Error: std::error::Error + 'static,
     {
-        let mut packet_stream = PacketStream::new(stream);
+        let mut packet_stream = PacketStream::new(receive);
         loop {
             let next_item = packet_stream.try_next().await;
             let packet = match next_item {
@@ -92,7 +103,7 @@ impl Client {
         }
     }
 
-    // TODO underlying protocol error
+    /// Send a `async` type request to the server and return the response.
     pub async fn send_async(
         &mut self,
         method: Vec<String>,
@@ -119,7 +130,7 @@ impl Client {
     }
 }
 
-/// Response for [Client::send_async]
+/// Response returned by [Client::send_async].
 #[derive(Clone)]
 pub enum AsyncResponse {
     Json(Vec<u8>),
@@ -157,9 +168,12 @@ impl From<packet::Body> for AsyncResponse {
 }
 
 #[derive(Debug, thiserror::Error)]
+/// Error returned by [Client::send_async].
 pub enum AsyncRequestError {
+    /// Failed to send the request to the server
     #[error("Failed to send request")]
     Send {
+        /// Error returned by the underlying transport channel
         #[source]
         error: Box<dyn std::error::Error + Send + Sync + 'static>,
     },

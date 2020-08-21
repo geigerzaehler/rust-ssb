@@ -152,7 +152,7 @@ impl Manifest {
             table.add_row(prettytable::row![i -> name, command.type_, command.description]);
         }
 
-        for (group, group_manifest) in manifest.groups {
+        for (group, group_manifest) in manifest.modules {
             if group_manifest
                 .methods
                 .iter()

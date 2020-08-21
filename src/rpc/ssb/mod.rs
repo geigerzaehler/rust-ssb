@@ -1,3 +1,4 @@
+//! Provides [Client] for the SSB RPC protocol.
 use futures::prelude::*;
 use std::collections::HashMap;
 
@@ -7,7 +8,10 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new<Sink_, Stream_>(sink: Sink_, stream: Stream_) -> Self
+    /// Create a new client from a duplex raw byte connection with a server.
+    ///
+    /// See [crate::rpc::base::Client] for details.
+    pub fn new<Sink_, Stream_>(sink: Sink_, receive: Stream_) -> Self
     where
         Sink_: Sink<Vec<u8>> + Unpin + 'static,
         Sink_::Error: std::error::Error + Send + Sync + 'static,
@@ -15,14 +19,16 @@ impl Client {
         Stream_::Error: std::error::Error + 'static,
     {
         Client {
-            base: crate::rpc::base::Client::new(sink, stream),
+            base: crate::rpc::base::Client::new(sink, receive),
         }
     }
 
+    /// Get the underlying application agnostic client.
     pub fn base(&mut self) -> &mut crate::rpc::base::Client {
         &mut self.base
     }
 
+    /// Get all registered RPC methods .
     pub async fn manifest(&mut self) -> Result<Manifest, Error> {
         let rpc_manifest = self
             .send_async_json::<RpcManifest>(&["manifest"], vec![])
@@ -30,9 +36,16 @@ impl Client {
         Ok(Manifest::from(rpc_manifest))
     }
 
-    pub async fn help(&mut self, group: Option<&str>) -> Result<Help, Error> {
-        let method = if let Some(group) = group {
-            vec![group, "help"]
+    /// Get description and signature information of available RPC methods for
+    /// the given module.
+    ///
+    /// If `module` is given calls the method `[module, "help"]`. Otherwise just calls `["help"]`.
+    ///
+    /// Not all methods may be included in the result. Use [Client::manifest] to
+    /// get a comprehensive list.
+    pub async fn help(&mut self, module: Option<&str>) -> Result<Help, Error> {
+        let method = if let Some(module) = module {
+            vec![module, "help"]
         } else {
             vec!["help"]
         };
@@ -40,6 +53,7 @@ impl Client {
         Ok(help)
     }
 
+    /// Send an `async` type request and expect a response with `T` serialized as.
     async fn send_async_json<T: serde::de::DeserializeOwned>(
         &mut self,
         method: &[&str],
@@ -85,7 +99,7 @@ pub enum Error {
 #[derive(Debug)]
 pub struct Manifest {
     pub methods: Vec<ManifestMethod>,
-    pub groups: HashMap<String, Manifest>,
+    pub modules: HashMap<String, Manifest>,
 }
 
 #[derive(Debug)]
@@ -101,23 +115,27 @@ impl From<RpcManifest> for Manifest {
         for (name, value) in m.0 {
             match value {
                 RpcManifestEntry::Method(type_) => methods.push(ManifestMethod { name, type_ }),
-                RpcManifestEntry::Group(group_manifest) => {
+                RpcManifestEntry::Module(group_manifest) => {
                     groups.insert(name, Manifest::from(group_manifest));
                 }
             }
         }
-        Self { methods, groups }
+        Self {
+            methods,
+            modules: groups,
+        }
     }
 }
 
 #[derive(serde::Deserialize, Debug)]
+/// Transport object for [Client::manifest]. Is converted to [Manifest]
 struct RpcManifest(HashMap<String, RpcManifestEntry>);
 
 #[derive(serde::Deserialize, Debug)]
 #[serde(untagged)]
 enum RpcManifestEntry {
     Method(String),
-    Group(RpcManifest),
+    Module(RpcManifest),
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -131,8 +149,10 @@ pub struct Help {
 pub struct HelpMethod {
     pub description: String,
     #[serde(rename = "type")]
+    /// The type of the method. Usually one of sync, async, source, sink, or duplex.
+    // TODO use enum
     pub type_: String,
-    args: HashMap<String, HelpMethodArg>,
+    pub args: HashMap<String, HelpMethodArg>,
 }
 
 #[derive(serde::Deserialize, Debug)]
