@@ -34,7 +34,7 @@ struct Options {
     #[structopt(long)]
     anonymous: bool,
 
-    /// <hostname:port> pair to connect to the server.
+    /// `hostname:port` pair to connect to the server.
     #[structopt(long, default_value = "localhost:8008")]
     server: String,
 
