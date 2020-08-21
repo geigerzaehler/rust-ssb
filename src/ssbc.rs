@@ -1,6 +1,6 @@
 use crate::{crypto, handshake, SCUTTLEBUTT_NETWORK_IDENTIFIER};
 use anyhow::Context as _;
-use structopt::StructOpt;
+use structopt::{clap, StructOpt};
 
 pub async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
@@ -11,7 +11,11 @@ pub async fn main() -> anyhow::Result<()> {
 
 /// Interact with a SSB server
 #[derive(StructOpt)]
-#[structopt(name = "ssbc", max_term_width = 100)]
+#[structopt(
+    name = "ssbc",
+    max_term_width = 100,
+    setting(clap::AppSettings::UnifiedHelpMessage)
+)]
 struct Cli {
     #[structopt(subcommand)]
     command: Command,
@@ -30,8 +34,9 @@ struct Options {
     #[structopt(long)]
     anonymous: bool,
 
+    /// <hostname:port> pair to connect to the server.
     #[structopt(long, default_value = "localhost:8008")]
-    server: String,
+    server: std::net::SocketAddr,
 
     /// Base64 encoded public key of the server
     #[structopt(long, parse(try_from_str = Options::parse_server_id))]
