@@ -1,4 +1,4 @@
-use crate::{crypto, handshake, SCUTTLEBUT_NETWORK_IDENTIFIER};
+use crate::{crypto, handshake, SCUTTLEBUTT_NETWORK_IDENTIFIER};
 use anyhow::Context as _;
 use structopt::StructOpt;
 
@@ -55,7 +55,7 @@ impl Options {
         let server_identity_pk = self.server_id.unwrap_or(client_identity_pk);
 
         let client = handshake::Client::new(
-            &SCUTTLEBUT_NETWORK_IDENTIFIER,
+            &SCUTTLEBUTT_NETWORK_IDENTIFIER,
             &server_identity_pk,
             &client_identity_pk,
             &client_identity_sk,
