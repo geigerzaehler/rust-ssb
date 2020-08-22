@@ -11,7 +11,7 @@ use crate::utils::ReadBuffer;
 /// Error receiving an RPC [Packet].
 pub enum NextPacketError {
     #[error("Source")]
-    Source(#[source] Box<dyn std::error::Error>),
+    Source(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
     #[error("Invalid header")]
     InvalidHeader(
         #[source]
@@ -49,7 +49,7 @@ impl<Stream> PacketStream<Stream> {
 impl<Stream_> Stream for PacketStream<Stream_>
 where
     Stream_: TryStream<Ok = Vec<u8>>,
-    Stream_::Error: std::error::Error + 'static,
+    Stream_::Error: std::error::Error + Send + Sync + 'static,
 {
     type Item = Result<Packet, NextPacketError>;
 

@@ -28,7 +28,7 @@
 //! assert_eq!(multi_address.to_string(), multi_address_string);
 //! ```
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MultiAddress {
     pub addresses: Vec<Address>,
 }
@@ -63,7 +63,7 @@ impl std::fmt::Display for MultiAddress {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Address {
     pub protocols: Vec<Protocol>,
 }
@@ -97,7 +97,7 @@ impl std::fmt::Display for Address {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Protocol {
     pub name: String,
     pub data: Vec<String>,

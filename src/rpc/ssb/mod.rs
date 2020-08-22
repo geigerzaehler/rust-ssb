@@ -13,10 +13,10 @@ impl Client {
     /// See [crate::rpc::base::Client] for details.
     pub fn new<Sink_, Stream_>(sink: Sink_, receive: Stream_) -> Self
     where
-        Sink_: Sink<Vec<u8>> + Unpin + 'static,
+        Sink_: Sink<Vec<u8>> + Send + Unpin + 'static,
         Sink_::Error: std::error::Error + Send + Sync + 'static,
         Stream_: TryStream<Ok = Vec<u8>> + Send + Unpin + 'static,
-        Stream_::Error: std::error::Error + 'static,
+        Stream_::Error: std::error::Error + Send + Sync + 'static,
     {
         Client {
             base: crate::rpc::base::Client::new(sink, receive),

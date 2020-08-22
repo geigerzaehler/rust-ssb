@@ -175,7 +175,7 @@ impl Server {
 
     pub async fn accept(
         self,
-        mut stream: impl AsyncRead + AsyncWrite + Unpin,
+        stream: impl AsyncRead + AsyncWrite + Unpin,
     ) -> Result<
         (
             impl Sink<Vec<u8>, Error = io::Error>,
@@ -183,6 +183,7 @@ impl Server {
         ),
         Error,
     > {
+        let mut stream = stream;
         let params = self.handshake(&mut stream).await?;
         Ok(box_stream(stream, params))
     }

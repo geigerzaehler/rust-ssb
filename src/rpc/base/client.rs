@@ -5,9 +5,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use super::packet::{self, Packet, RequestType};
-use super::packet_stream::PacketStream;
+use super::packet_stream::{NextPacketError, PacketStream};
 
-type ClientSink = dyn Sink<Vec<u8>, Error = Box<dyn std::error::Error + Send + Sync + 'static>>;
+type ClientSink =
+    dyn Sink<Vec<u8>, Error = Box<dyn std::error::Error + Send + Sync + 'static>> + Send;
 
 /// Client for an application agnostic RPC protocol described in the [Scuttlebutt
 /// Protocol Guide][ssb-prot].
@@ -17,7 +18,7 @@ pub struct Client {
     sink: Pin<Box<ClientSink>>,
     next_request_number: u32,
     pending_async_requests: Arc<CHashMap<u32, oneshot::Sender<AsyncResponse>>>,
-    packet_reader_task: async_std::task::JoinHandle<()>,
+    packet_reader_handle: async_std::task::JoinHandle<Result<(), NextPacketError>>,
 }
 
 impl std::fmt::Debug for Client {
@@ -25,7 +26,7 @@ impl std::fmt::Debug for Client {
         f.debug_struct("Client")
             .field("sink", &"Pin<Box<dyn Sink>>")
             .field("pending_async_requests", &self.pending_async_requests)
-            .field("packet_reader_task", &self.packet_reader_task)
+            .field("packet_reader_task", &self.packet_reader_handle)
             .finish()
     }
 }
@@ -37,16 +38,16 @@ impl Client {
     /// starts a background task to read all data arriving on `stream`.
     pub fn new<Sink_, TryStream_>(send: Sink_, receive: TryStream_) -> Self
     where
-        Sink_: Sink<Vec<u8>> + Unpin + 'static,
+        Sink_: Sink<Vec<u8>> + Send + Unpin + 'static,
         Sink_::Error: std::error::Error + Send + Sync + 'static,
         TryStream_: TryStream<Ok = Vec<u8>> + Send + Unpin + 'static,
-        TryStream_::Error: std::error::Error + 'static,
+        TryStream_::Error: std::error::Error + Send + Sync + 'static,
     {
         let pending_async_requests =
             Arc::new(CHashMap::<u32, oneshot::Sender<AsyncResponse>>::new());
         let pending_async_requests2 = Arc::clone(&pending_async_requests);
         let packet_reader_task = async_std::task::spawn(async move {
-            Self::consume_packets(receive, &pending_async_requests2).await;
+            Self::consume_packets(receive, &pending_async_requests2).await
         });
         Self {
             sink: Box::pin(send.sink_map_err(|error| {
@@ -54,8 +55,12 @@ impl Client {
             })),
             next_request_number: 1,
             pending_async_requests,
-            packet_reader_task,
+            packet_reader_handle: packet_reader_task,
         }
+    }
+
+    pub async fn join(self) -> Result<(), NextPacketError> {
+        self.packet_reader_handle.await
     }
 
     /// Read bytes from `receive`, parse them as RPC [Packet]s and dispatch them.
@@ -64,9 +69,10 @@ impl Client {
     async fn consume_packets<Stream_>(
         receive: Stream_,
         pending_async_requests: &CHashMap<u32, oneshot::Sender<AsyncResponse>>,
-    ) where
+    ) -> Result<(), NextPacketError>
+    where
         Stream_: TryStream<Ok = Vec<u8>> + Unpin,
-        Stream_::Error: std::error::Error + 'static,
+        Stream_::Error: std::error::Error + Send + Sync + 'static,
     {
         let mut packet_stream = PacketStream::new(receive);
         loop {
@@ -74,9 +80,9 @@ impl Client {
             let packet = match next_item {
                 Ok(Some(packet)) => packet,
                 // TOOO handle closing
-                Ok(None) => break,
+                Ok(None) => return Ok(()),
                 // TOOO handle error
-                Err(_err) => todo!(),
+                Err(err) => return Err(err),
             };
 
             match packet {
