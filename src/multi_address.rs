@@ -33,6 +33,14 @@ pub struct MultiAddress {
     pub addresses: Vec<Address>,
 }
 
+impl From<Address> for MultiAddress {
+    fn from(address: Address) -> Self {
+        MultiAddress {
+            addresses: vec![address],
+        }
+    }
+}
+
 impl std::str::FromStr for MultiAddress {
     type Err = peg::error::ParseError<peg::str::LineCol>;
 
@@ -60,6 +68,21 @@ pub struct Address {
     pub protocols: Vec<Protocol>,
 }
 
+impl Address {
+    /// ```rust
+    /// # use ssb::multi_address::Address;
+    /// let socket_addr = "127.0.0.1:8000".parse().unwrap();
+    /// let public_key = [0xde, 0xad, 0xbe, 0xef];
+    /// let address = Address::net_shs(&socket_addr, public_key.as_ref());
+    /// assert_eq!(address.to_string(), "net:127.0.0.1:8000~shs:3q2+7w==");
+    /// ```
+    pub fn net_shs(socket_addr_v4: &std::net::SocketAddrV4, key: &[u8]) -> Self {
+        Self {
+            protocols: vec![Protocol::net(socket_addr_v4), Protocol::shs(key)],
+        }
+    }
+}
+
 impl std::fmt::Display for Address {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -78,6 +101,30 @@ impl std::fmt::Display for Address {
 pub struct Protocol {
     pub name: String,
     pub data: Vec<String>,
+}
+
+impl Protocol {
+    /// ```rust
+    /// # use ssb::multi_address::Protocol;
+    /// let protocol = Protocol::net(&"127.0.0.1:8000".parse().unwrap());
+    /// assert_eq!(protocol.to_string(), "net:127.0.0.1:8000");
+    /// ```
+    pub fn net(socket_addr_v4: &std::net::SocketAddrV4) -> Self {
+        Self {
+            name: "net".to_string(),
+            data: vec![
+                socket_addr_v4.ip().to_string(),
+                socket_addr_v4.port().to_string(),
+            ],
+        }
+    }
+
+    pub fn shs(key: &[u8]) -> Self {
+        Self {
+            name: "shs".to_string(),
+            data: vec![base64::encode(&key)],
+        }
+    }
 }
 
 impl std::fmt::Display for Protocol {
