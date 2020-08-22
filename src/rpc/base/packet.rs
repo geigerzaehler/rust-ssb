@@ -19,9 +19,11 @@ pub enum Packet {
         #[cfg_attr(test, proptest(value = "vec![]"))]
         args: Vec<serde_json::Value>,
     },
-    StreamRequestItem {
+    StreamRequest {
         #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
         number: u32,
+        #[cfg_attr(test, proptest(strategy = "proptest::bool::ANY"))]
+        is_end: bool,
         body: Body,
     },
     AsyncResponse {
@@ -110,14 +112,17 @@ impl Packet {
         let request_number = header.request_number;
         #[allow(clippy::collapsible_if)]
         let packet = if request_number > 0 {
-            if header.is_end_or_error {
-                todo!("request end or error")
-            } else if header.is_stream {
-                Packet::StreamRequestItem {
+            if header.is_stream {
+                Packet::StreamRequest {
                     number: request_number as u32,
+                    is_end: header.is_end_or_error,
                     body: Body::new(header.body_type, body),
                 }
             } else {
+                if header.is_end_or_error {
+                    tracing::error!(?header, ?body);
+                    todo!("request end or error")
+                }
                 let RequestBody { name, args, typ } = serde_json::from_slice(&body)
                     .map_err(|error| PacketParseError::RequestBody { body, error })?;
                 let typ = RequestType::try_from_str(&typ)?;
@@ -169,11 +174,15 @@ impl Packet {
                     args,
                 }),
             ),
-            Packet::StreamRequestItem { number, body } => RawPacket::new(
+            Packet::StreamRequest {
+                number,
+                is_end,
+                body,
+            } => RawPacket::new(
                 HeaderOptions {
                     request_number: number as i32,
                     is_stream: true,
-                    is_end_or_error: false,
+                    is_end_or_error: is_end,
                 },
                 body,
             ),

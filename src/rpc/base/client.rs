@@ -105,7 +105,7 @@ impl Client {
                     None
                 }),
                 req @ Packet::Request { .. } => tracing::warn!(?req, "ingoring rpc request"),
-                req @ Packet::StreamRequestItem { .. } => {
+                req @ Packet::StreamRequest { .. } => {
                     tracing::warn!(?req, "ingoring rpc stream request")
                 }
             }
