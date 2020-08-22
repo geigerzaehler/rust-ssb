@@ -19,6 +19,11 @@ pub enum Packet {
         #[cfg_attr(test, proptest(value = "vec![]"))]
         args: Vec<serde_json::Value>,
     },
+    StreamRequestItem {
+        #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
+        number: u32,
+        body: Body,
+    },
     AsyncResponse {
         #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
         number: u32,
@@ -55,6 +60,8 @@ pub enum PacketParseError {
 pub enum RequestType {
     Async,
     Source,
+    Sink,
+    Duplex,
 }
 
 impl RequestType {
@@ -62,6 +69,8 @@ impl RequestType {
         match self {
             Self::Async => "async",
             Self::Source => "source",
+            Self::Sink => "sink",
+            Self::Duplex => "duplex",
         }
         .to_string()
     }
@@ -70,16 +79,11 @@ impl RequestType {
         match value {
             "async" => Ok(Self::Async),
             "source" => Ok(Self::Source),
+            "sink" => Ok(Self::Sink),
+            "duplex" => Ok(Self::Duplex),
             _ => Err(PacketParseError::InvalidRequestType {
                 typ: value.to_string(),
             }),
-        }
-    }
-
-    fn is_stream(&self) -> bool {
-        match self {
-            Self::Async => false,
-            Self::Source => true,
         }
     }
 }
@@ -102,13 +106,17 @@ struct ErrorResponseBody {
 }
 
 impl Packet {
-    pub fn new(header: Header, body: Vec<u8>) -> Result<Self, PacketParseError> {
+    pub fn parse(header: Header, body: Vec<u8>) -> Result<Self, PacketParseError> {
         let request_number = header.request_number;
-        let is_stream = header.is_stream;
         #[allow(clippy::collapsible_if)]
         let packet = if request_number > 0 {
             if header.is_end_or_error {
                 todo!("request end or error")
+            } else if header.is_stream {
+                Packet::StreamRequestItem {
+                    number: request_number as u32,
+                    body: Body::new(header.body_type, body),
+                }
             } else {
                 let RequestBody { name, args, typ } = serde_json::from_slice(&body)
                     .map_err(|error| PacketParseError::RequestBody { body, error })?;
@@ -129,7 +137,7 @@ impl Packet {
                     message,
                     name,
                 }
-            } else if is_stream {
+            } else if header.is_stream {
                 todo!("stream response")
             } else {
                 let body = Body::new(header.body_type, body);
@@ -152,7 +160,7 @@ impl Packet {
             } => RawPacket::new(
                 HeaderOptions {
                     request_number: number as i32,
-                    is_stream: typ.is_stream(),
+                    is_stream: false,
                     is_end_or_error: false,
                 },
                 Body::json(&RequestBody {
@@ -160,6 +168,14 @@ impl Packet {
                     typ: typ.as_string(),
                     args,
                 }),
+            ),
+            Packet::StreamRequestItem { number, body } => RawPacket::new(
+                HeaderOptions {
+                    request_number: number as i32,
+                    is_stream: true,
+                    is_end_or_error: false,
+                },
+                body,
             ),
             Packet::AsyncResponse { number, body } => RawPacket::new(
                 HeaderOptions {
@@ -282,9 +298,9 @@ mod test {
     use crate::test_utils::*;
 
     #[proptest]
-    fn packet_build_new(packet: Packet) {
+    fn packet_build_parse(packet: Packet) {
         let RawPacket { header, body } = packet.clone().build_raw();
-        let packet2 = Packet::new(header, body).unwrap();
+        let packet2 = Packet::parse(header, body).unwrap();
         prop_assert_eq!(packet, packet2);
     }
 }

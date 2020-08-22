@@ -115,7 +115,7 @@ impl PacketReader {
                 Self::ReadingBody { header, buffer } => {
                     let body_data = buffer.put(&mut data)?;
                     let packet_result =
-                        Packet::new(*header, body_data).map_err(NextPacketError::PacketParse);
+                        Packet::parse(*header, body_data).map_err(NextPacketError::PacketParse);
                     *self = Self::new();
                     return Some(packet_result);
                 }
