@@ -14,6 +14,7 @@ mod test_utils;
 mod box_stream;
 pub mod crypto;
 pub mod handshake;
+pub mod multi_address;
 pub mod rpc;
 pub mod secret_file;
 pub mod ssbc;
