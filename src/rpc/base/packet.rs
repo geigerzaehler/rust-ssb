@@ -55,6 +55,11 @@ pub enum PacketParseError {
         #[source]
         error: serde_json::Error,
     },
+    #[error("Invalid string payload")]
+    StringPlayloadEncoding {
+        #[source]
+        error: std::string::FromUtf8Error,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,7 +121,8 @@ impl Packet {
                 Packet::StreamRequest {
                     number: request_number as u32,
                     is_end: header.is_end_or_error,
-                    body: Body::new(header.body_type, body),
+                    body: Body::parse(header.body_type, body)
+                        .map_err(|error| PacketParseError::StringPlayloadEncoding { error })?,
                 }
             } else {
                 if header.is_end_or_error {
@@ -145,7 +151,8 @@ impl Packet {
             } else if header.is_stream {
                 todo!("stream response")
             } else {
-                let body = Body::new(header.body_type, body);
+                let body = Body::parse(header.body_type, body)
+                    .map_err(|error| PacketParseError::StringPlayloadEncoding { error })?;
                 Packet::AsyncResponse {
                     number: -header.request_number as u32,
                     body,
@@ -224,13 +231,12 @@ pub enum Body {
 }
 
 impl Body {
-    fn new(body_type: BodyType, data: Vec<u8>) -> Self {
-        match body_type {
+    fn parse(body_type: BodyType, data: Vec<u8>) -> Result<Self, std::string::FromUtf8Error> {
+        Ok(match body_type {
             BodyType::Binary => Body::Blob(data),
-            // TODO handle error
-            BodyType::Utf8String => Body::String(String::from_utf8(data).unwrap()),
+            BodyType::Utf8String => Body::String(String::from_utf8(data)?),
             BodyType::Json => Body::Json(data),
-        }
+        })
     }
 
     fn json(value: &impl serde::Serialize) -> Self {
