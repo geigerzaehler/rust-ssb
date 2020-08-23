@@ -107,6 +107,13 @@ impl PacketReader {
                         Ok(header) => header,
                         Err(err) => return Some(Err(NextPacketError::InvalidHeader(err))),
                     };
+                    if header.body_len == 0 {
+                        *self = Self::new();
+                        return Some(
+                            Packet::parse(header, Vec::new()).map_err(NextPacketError::PacketParse),
+                        );
+                    }
+
                     *self = Self::ReadingBody {
                         header,
                         buffer: ReadBuffer::new(header.body_len as usize),

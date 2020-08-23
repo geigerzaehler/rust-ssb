@@ -23,8 +23,6 @@ pub enum BodyType {
 pub enum HeaderParseError {
     #[error("Invalid body type {value}")]
     InvalidBodyType { value: u8 },
-    #[error("Zero body length is not allowed")]
-    ZeroBodyLength,
 }
 
 impl BodyType {
@@ -54,9 +52,6 @@ impl Header {
         let is_end_or_error = flags & IS_END_OR_ERROR_MASK != 0;
         let body_type = BodyType::from_flags(flags)?;
         let body_len = bytes.get_u32();
-        if body_len == 0 {
-            return Err(HeaderParseError::ZeroBodyLength);
-        }
         let request_number = bytes.get_i32();
         debug_assert!(!bytes.has_remaining());
 

@@ -224,8 +224,8 @@ impl Packet {
 #[derive(Clone, PartialEq, Eq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum Body {
-    Blob(#[cfg_attr(test, proptest(filter = "|x| !x.is_empty()"))] Vec<u8>),
-    String(#[cfg_attr(test, proptest(filter = "|x| !x.is_empty()"))] String),
+    Blob(Vec<u8>),
+    String(String),
     // TODO proptest arbritrary json value
     Json(#[cfg_attr(test, proptest(value = "b\"{}\".to_vec()"))] Vec<u8>),
 }
