@@ -1,7 +1,7 @@
 //! MultiAddress format for representing layered network addresess.
 //!
 //! A [MultiAddress] is a list of addresses for a connecting to a peer on the
-//! network. Each [Address] is a stack of [Protocols]. A connection is
+//! network. Each [Address] is a stack of [Protocol]s. A connection is
 //! established using the first protocol and then in the stack. Subsequent
 //! protocols use the previous protocol as the underyling transport
 //!
