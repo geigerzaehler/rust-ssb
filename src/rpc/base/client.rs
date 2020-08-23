@@ -66,6 +66,7 @@ impl Client {
     /// Read bytes from `receive`, parse them as RPC [Packet]s and dispatch them.
     ///
     /// Returns when there is no data to read from `receive` anymore.
+    #[tracing::instrument(skip(receive, pending_async_requests))]
     async fn consume_packets<Stream_>(
         receive: Stream_,
         pending_async_requests: &CHashMap<u32, oneshot::Sender<AsyncResponse>>,
@@ -87,6 +88,7 @@ impl Client {
 
             match packet {
                 Packet::AsyncResponse { number, body } => {
+                    tracing::debug!(number, "recevied AsyncResponse");
                     pending_async_requests.alter(number, |opt_respond| {
                         if let Some(respond) = opt_respond {
                             let _result = respond.send(AsyncResponse::from(body));
@@ -98,12 +100,15 @@ impl Client {
                     number,
                     name,
                     message,
-                } => pending_async_requests.alter(number, |opt_respond| {
-                    if let Some(respond) = opt_respond {
-                        let _result = respond.send(AsyncResponse::Error { name, message });
-                    }
-                    None
-                }),
+                } => {
+                    tracing::debug!(number, %name, %message, "recevied AsyncErrorResponse");
+                    pending_async_requests.alter(number, |opt_respond| {
+                        if let Some(respond) = opt_respond {
+                            let _result = respond.send(AsyncResponse::Error { name, message });
+                        }
+                        None
+                    })
+                }
                 req @ Packet::Request { .. } => tracing::warn!(?req, "ingoring rpc request"),
                 req @ Packet::StreamRequest { .. } => {
                     tracing::warn!(?req, "ingoring rpc stream request")
