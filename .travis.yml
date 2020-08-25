@@ -1,12 +1,16 @@
-language: rust
-cache: cargo
+os: linux
+dist: focal
 
-before_install:
-  - rustup component add clippy
+.rust: &rust
+  language: rust
+  cache: cargo
 
 jobs:
+  fast_finish: true
   include:
-    - name: 'fmt'
+    - name: "fmt"
+      <<: *rust
+      cache: false
       rust: stable
       before_install:
         - rustup component add rustfmt
@@ -14,21 +18,31 @@ jobs:
         - cargo fmt --all -- --check
 
     - &test
-      name: 'test (stable)'
+      name: "test (stable)"
+      <<: *rust
       rust: stable
       services: [docker]
-      script: &test-script
-        - cargo clippy --locked --all-targets -- --deny clippy::all --deny warnings
-        - DETACH=true ./tests/ssb-server.sh
-        - cargo test
+      before_install:
+        - rustup component add clippy
+      script: ./ci/run.sh
 
     - <<: *test
-      name: 'test (nightly)'
+      name: "test (nightly)"
       rust: nightly
 
-    - name: 'docs (nightly)'
+    - name: "docs (nightly)"
+      <<: *rust
       rust: nightly
       script:
         - RUSTDOCFLAGS="-D intra-doc-link-resolution-failure" cargo doc --no-deps --document-private-items
-
-  fast_finish: true
+    - name: "muxrpc-test-suite"
+      language: node
+      node_js: 12
+      cache: yarn
+      before_install:
+        - cd muxrpc-test-suite
+      install:
+        - yarn --frozen-lockfile install
+      script:
+        - yarn run lint
+        - yarn run test

@@ -4,7 +4,7 @@ use futures::prelude::*;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use super::packet::{self, Packet, RequestType};
+use super::packet::{self, Packet, Request, RequestType, Response};
 use super::packet_stream::{NextPacketError, PacketStream};
 
 type ClientSink =
@@ -87,32 +87,38 @@ impl Client {
             };
 
             match packet {
-                Packet::AsyncResponse { number, body } => {
-                    tracing::debug!(number, "recevied AsyncResponse");
-                    pending_async_requests.alter(number, |opt_respond| {
-                        if let Some(respond) = opt_respond {
-                            let _result = respond.send(AsyncResponse::from(body));
-                        }
-                        None
-                    })
-                }
-                Packet::AsyncErrorResponse {
-                    number,
-                    name,
-                    message,
-                } => {
-                    tracing::debug!(number, %name, %message, "recevied AsyncErrorResponse");
-                    pending_async_requests.alter(number, |opt_respond| {
-                        if let Some(respond) = opt_respond {
-                            let _result = respond.send(AsyncResponse::Error { name, message });
-                        }
-                        None
-                    })
-                }
+                Packet::Response(response) => match response {
+                    Response::AsyncOk { number, body } => {
+                        pending_async_requests.alter(number, |opt_respond| {
+                            if let Some(respond) = opt_respond {
+                                // TODO handle error
+                                respond.send(AsyncResponse::from(body)).unwrap();
+                            } else {
+                                todo!("no response listener for ok")
+                            }
+                            None
+                        })
+                    }
+                    Response::AsyncErr {
+                        number,
+                        name,
+                        message,
+                    } => {
+                        pending_async_requests.alter(number, |opt_respond| {
+                            if let Some(respond) = opt_respond {
+                                // TODO handle error
+                                respond
+                                    .send(AsyncResponse::Error { name, message })
+                                    .unwrap();
+                            } else {
+                                todo!("no response listener for error")
+                            }
+                            None
+                        })
+                    }
+                    res => todo!("unhandled response {:?}", res),
+                },
                 req @ Packet::Request { .. } => tracing::warn!(?req, "ingoring rpc request"),
-                req @ Packet::StreamRequest { .. } => {
-                    tracing::warn!(?req, "ingoring rpc stream request")
-                }
             }
         }
     }
@@ -126,12 +132,12 @@ impl Client {
         let request_number = self.next_request_number;
         self.next_request_number += 1;
 
-        let packet = Packet::Request {
+        let packet = Packet::Request(Request::Async {
             number: request_number,
             typ: RequestType::Async,
             method,
             args,
-        };
+        });
         let (sender, receiver) = oneshot::channel();
         self.pending_async_requests.insert(request_number, sender);
         self.sink
@@ -145,7 +151,7 @@ impl Client {
 }
 
 /// Response returned by [Client::send_async].
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum AsyncResponse {
     Json(Vec<u8>),
     Blob(Vec<u8>),

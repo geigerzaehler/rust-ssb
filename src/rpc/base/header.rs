@@ -1,12 +1,19 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Header {
-    pub is_stream: bool,
-    pub is_end_or_error: bool,
+    pub flags: HeaderFlags,
     pub body_type: BodyType,
     #[cfg_attr(test, proptest(strategy = "1u32..=u32::MAX"))]
     pub body_len: u32,
     pub request_number: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+#[cfg_attr(test, proptest(no_params))]
+pub struct HeaderFlags {
+    pub is_stream: bool,
+    pub is_end_or_error: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,8 +63,10 @@ impl Header {
         debug_assert!(!bytes.has_remaining());
 
         Ok(Self {
-            is_stream,
-            is_end_or_error,
+            flags: HeaderFlags {
+                is_stream,
+                is_end_or_error,
+            },
             body_type,
             body_len,
             request_number,
@@ -70,10 +79,10 @@ impl Header {
         let mut header = [0u8; Self::SIZE];
         let cursor = &mut &mut header[..];
         let mut flags = self.body_type as u8;
-        if self.is_stream {
+        if self.flags.is_stream {
             flags |= IS_STREAM_MASK;
         }
-        if self.is_end_or_error {
+        if self.flags.is_end_or_error {
             flags |= IS_END_OR_ERROR_MASK;
         }
         cursor.put_u8(flags);

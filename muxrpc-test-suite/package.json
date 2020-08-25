@@ -1,0 +1,28 @@
+{
+  "name": "muxrpc-test-suite",
+  "version": "0.0.0",
+  "description": "A suite of tests for muxrpc clients and servers",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "eslint-plugin-mocha": "^8.0.0",
+    "lodash": "^4.17.20",
+    "mocha": "^8.1.1",
+    "muxrpc": "^6.5.0",
+    "prettier": "^2.1.0",
+    "pull-stream": "^3.6.14",
+    "stream-to-pull-stream": "^1.7.3"
+  },
+  "scripts": {
+    "test": "mocha",
+    "lint": "prettier --check . && eslint ."
+  },
+  "devDependencies": {
+    "eslint": "^7.7.0",
+    "eslint-config-standard": "^14.1.1",
+    "eslint-plugin-import": "^2.22.0",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-promise": "^4.2.1",
+    "eslint-plugin-standard": "^4.0.1"
+  }
+}
