@@ -4,7 +4,7 @@ use futures::prelude::*;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use super::packet::{self, Packet, Request, RequestType, Response};
+use super::packet::{self, Packet, Request, Response};
 use super::packet_stream::{NextPacketError, PacketStream};
 
 type ClientSink =
@@ -134,7 +134,6 @@ impl Client {
 
         let packet = Packet::Request(Request::Async {
             number: request_number,
-            typ: RequestType::Async,
             method,
             args,
         });

@@ -16,8 +16,6 @@ pub enum Request {
     Async {
         #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
         number: u32,
-        // TODO superfluous. Should always by RequestType::Async
-        typ: RequestType,
         #[cfg_attr(
             test,
             proptest(
@@ -75,13 +73,13 @@ pub enum PacketParseError {
     InvalidRequestType { typ: String },
     #[error("Failed to decode JSON request body")]
     RequestBody {
-        body: Vec<u8>,
+        body: String,
         #[source]
         error: serde_json::Error,
     },
     #[error("Failed to decode error response body")]
     ErrorResponseBody {
-        body: Vec<u8>,
+        body: String,
         #[source]
         error: serde_json::Error,
     },
@@ -99,6 +97,7 @@ pub enum PacketParseError {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+#[allow(dead_code)]
 pub enum RequestType {
     Async,
     Source,
@@ -107,6 +106,7 @@ pub enum RequestType {
 }
 
 impl RequestType {
+    #[allow(dead_code)]
     fn as_string(&self) -> String {
         match self {
             Self::Async => "async",
@@ -117,6 +117,7 @@ impl RequestType {
         .to_string()
     }
 
+    #[allow(dead_code)]
     fn try_from_str(value: &str) -> Result<Self, PacketParseError> {
         match value {
             "async" => Ok(Self::Async),
@@ -137,8 +138,6 @@ struct RequestBody {
     // TODO generate json values
     #[cfg_attr(test, proptest(value = "vec![]"))]
     args: Vec<serde_json::Value>,
-    #[serde(rename = "type")]
-    typ: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -156,7 +155,7 @@ impl ErrorResponseBody {
 
     fn parse_json(json: &[u8]) -> Result<Self, PacketParseError> {
         serde_json::from_slice(&json).map_err(|error| PacketParseError::ErrorResponseBody {
-            body: json.to_vec(),
+            body: String::from_utf8_lossy(json).into_owned(),
             error,
         })
     }
@@ -178,11 +177,14 @@ impl Packet {
                     tracing::error!(?header, ?body);
                     todo!("request end or error")
                 }
-                let RequestBody { name, args, typ } = serde_json::from_slice(&body)
-                    .map_err(|error| PacketParseError::RequestBody { body, error })?;
-                let typ = RequestType::try_from_str(&typ)?;
+                let RequestBody { name, args } =
+                    serde_json::from_slice(&body).map_err(|error| {
+                        PacketParseError::RequestBody {
+                            body: String::from_utf8_lossy(&body).into_owned(),
+                            error,
+                        }
+                    })?;
                 Packet::Request(Request::Async {
-                    typ,
                     number: header.request_number as u32,
                     method: name,
                     args,
@@ -231,18 +233,13 @@ impl Packet {
             Packet::Request(request) => match request {
                 Request::Async {
                     number,
-                    typ,
                     method,
                     args,
                 } => RawPacket {
                     request_number: number as i32,
                     is_stream: false,
                     is_end_or_error: false,
-                    body: Body::json(&RequestBody {
-                        name: method,
-                        typ: typ.as_string(),
-                        args,
-                    }),
+                    body: Body::json(&RequestBody { name: method, args }),
                 },
                 Request::Stream {
                     number,
@@ -326,7 +323,8 @@ impl Body {
         })
     }
 
-    fn json(value: &impl serde::Serialize) -> Self {
+    pub(crate) fn json(value: &impl serde::Serialize) -> Self {
+        // TODO error
         Self::Json(serde_json::to_vec(value).unwrap())
     }
 
