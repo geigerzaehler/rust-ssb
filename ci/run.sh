@@ -13,4 +13,4 @@ DETACH=true ./tests/ssb-server.sh
     yarn --frozen-lockfile install
 )
 node muxrpc-test-suite/server.js &
-cargo test --all-targets --all-features
+RUST_LOG=debug RUST_BACKTRACE=1 cargo test --all-targets --all-features
