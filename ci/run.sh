@@ -6,11 +6,11 @@ source ~/.nvm/nvm.sh
 
 nvm install v12
 nvm use v12
-cargo clippy --locked --all-targets -- --deny clippy::all --deny warnings
+cargo clippy --locked --all-targets --all-features -- --deny warnings
 DETACH=true ./tests/ssb-server.sh
 (
     cd muxrpc-test-suite
     yarn --frozen-lockfile install
 )
 node muxrpc-test-suite/server.js &
-cargo test --all-targets
+cargo test --all-targets --all-features

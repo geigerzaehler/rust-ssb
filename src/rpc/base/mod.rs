@@ -6,9 +6,19 @@
 //! [ssb-prot]: https://ssbc.github.io/scuttlebutt-protocol-guide/#rpc-protocol
 //! [ssbc-muxrpc]: https://github.com/ssbc/muxrpc
 mod client;
+mod endpoint;
 mod header;
 mod packet;
 mod packet_stream;
+pub mod server;
+#[cfg(any(test, feature = "test-server"))]
+pub mod test_server;
 
 #[doc(inline)]
 pub use client::{AsyncRequestError, AsyncResponse, Client};
+
+#[doc(inline)]
+pub use packet::Body;
+
+#[doc(inline)]
+pub use endpoint::Endpoint;

@@ -35,6 +35,7 @@ jobs:
       rust: nightly
       script:
         - RUSTDOCFLAGS="-D intra-doc-link-resolution-failure" cargo doc --no-deps --document-private-items
+
     - name: "muxrpc-test-suite"
       language: node
       node_js: 12

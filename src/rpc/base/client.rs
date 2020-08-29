@@ -4,21 +4,20 @@ use futures::prelude::*;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use super::packet::{self, Packet, Request, Response};
-use super::packet_stream::{NextPacketError, PacketStream};
+use super::packet::{self, Request, Response};
 
-type ClientSink =
-    dyn Sink<Vec<u8>, Error = Box<dyn std::error::Error + Send + Sync + 'static>> + Send;
+type RequestSink =
+    dyn Sink<Request, Error = Box<dyn std::error::Error + Send + Sync + 'static>> + Send;
 
 /// Client for an application agnostic RPC protocol described in the [Scuttlebutt
 /// Protocol Guide][ssb-prot].
 ///
 /// [ssb-prot]: https://ssbc.github.io/scuttlebutt-protocol-guide/#rpc-protocol
 pub struct Client {
-    sink: Pin<Box<ClientSink>>,
+    sink: Pin<Box<RequestSink>>,
     next_request_number: u32,
     pending_async_requests: Arc<CHashMap<u32, oneshot::Sender<AsyncResponse>>>,
-    packet_reader_handle: async_std::task::JoinHandle<Result<(), NextPacketError>>,
+    packet_reader_handle: async_std::task::JoinHandle<()>,
 }
 
 impl std::fmt::Debug for Client {
@@ -32,25 +31,20 @@ impl std::fmt::Debug for Client {
 }
 
 impl Client {
-    /// Create a new client from a duplex raw byte connection
-    ///
-    /// Data is send using `send` and received through `receive`. This function
-    /// starts a background task to read all data arriving on `stream`.
-    pub fn new<Sink_, TryStream_>(send: Sink_, receive: TryStream_) -> Self
+    pub fn new<RequestSink, Stream_>(request_sink: RequestSink, response_stream: Stream_) -> Self
     where
-        Sink_: Sink<Vec<u8>> + Send + Unpin + 'static,
-        Sink_::Error: std::error::Error + Send + Sync + 'static,
-        TryStream_: TryStream<Ok = Vec<u8>> + Send + Unpin + 'static,
-        TryStream_::Error: std::error::Error + Send + Sync + 'static,
+        RequestSink: Sink<Request> + Send + Unpin + 'static,
+        RequestSink::Error: std::error::Error + Send + Sync + 'static,
+        Stream_: Stream<Item = Response> + Send + Unpin + 'static,
     {
         let pending_async_requests =
             Arc::new(CHashMap::<u32, oneshot::Sender<AsyncResponse>>::new());
         let pending_async_requests2 = Arc::clone(&pending_async_requests);
         let packet_reader_task = async_std::task::spawn(async move {
-            Self::consume_packets(receive, &pending_async_requests2).await
+            Self::consume_responses(response_stream, &pending_async_requests2).await
         });
         Self {
-            sink: Box::pin(send.sink_map_err(|error| {
+            sink: Box::pin(request_sink.sink_map_err(|error| {
                 Box::new(error) as Box<dyn std::error::Error + Send + Sync + 'static>
             })),
             next_request_number: 1,
@@ -59,66 +53,50 @@ impl Client {
         }
     }
 
-    pub async fn join(self) -> Result<(), NextPacketError> {
+    pub async fn join(self) {
         self.packet_reader_handle.await
     }
 
-    /// Read bytes from `receive`, parse them as RPC [Packet]s and dispatch them.
-    ///
-    /// Returns when there is no data to read from `receive` anymore.
-    #[tracing::instrument(skip(receive, pending_async_requests))]
-    async fn consume_packets<Stream_>(
-        receive: Stream_,
+    #[tracing::instrument(skip(response_stream, pending_async_requests))]
+    async fn consume_responses<Stream_>(
+        response_stream: Stream_,
         pending_async_requests: &CHashMap<u32, oneshot::Sender<AsyncResponse>>,
-    ) -> Result<(), NextPacketError>
+    ) -> ()
     where
-        Stream_: TryStream<Ok = Vec<u8>> + Unpin,
-        Stream_::Error: std::error::Error + Send + Sync + 'static,
+        Stream_: Stream<Item = Response> + Send + Unpin + 'static,
     {
-        let mut packet_stream = PacketStream::new(receive);
-        loop {
-            let next_item = packet_stream.try_next().await;
-            let packet = match next_item {
-                Ok(Some(packet)) => packet,
-                // TOOO handle closing
-                Ok(None) => return Ok(()),
-                // TOOO handle error
-                Err(err) => return Err(err),
-            };
-
-            match packet {
-                Packet::Response(response) => match response {
-                    Response::AsyncOk { number, body } => {
-                        pending_async_requests.alter(number, |opt_respond| {
-                            if let Some(respond) = opt_respond {
-                                // TODO handle error
-                                respond.send(AsyncResponse::from(body)).unwrap();
-                            } else {
-                                todo!("no response listener for ok")
-                            }
-                            None
-                        })
-                    }
-                    Response::AsyncErr {
-                        number,
-                        name,
-                        message,
-                    } => {
-                        pending_async_requests.alter(number, |opt_respond| {
-                            if let Some(respond) = opt_respond {
-                                // TODO handle error
-                                respond
-                                    .send(AsyncResponse::Error { name, message })
-                                    .unwrap();
-                            } else {
-                                todo!("no response listener for error")
-                            }
-                            None
-                        })
-                    }
-                    res => todo!("unhandled response {:?}", res),
-                },
-                req @ Packet::Request { .. } => tracing::warn!(?req, "ingoring rpc request"),
+        let mut response_stream = response_stream;
+        while let Some(response) = response_stream.next().await {
+            match response {
+                Response::AsyncOk { number, body } => {
+                    pending_async_requests.alter(number, |opt_respond| {
+                        if let Some(respond) = opt_respond {
+                            // TODO handle error
+                            respond.send(AsyncResponse::from(body)).unwrap();
+                        } else {
+                            tracing::error!(number, ?body, "no matching response");
+                        }
+                        None
+                    })
+                }
+                Response::AsyncErr {
+                    number,
+                    name,
+                    message,
+                } => {
+                    pending_async_requests.alter(number, |opt_respond| {
+                        if let Some(respond) = opt_respond {
+                            // TODO handle error
+                            respond
+                                .send(AsyncResponse::Error { name, message })
+                                .unwrap();
+                        } else {
+                            todo!("no response listener for error")
+                        }
+                        None
+                    })
+                }
+                res => todo!("unhandled response {:?}", res),
             }
         }
     }
@@ -132,15 +110,15 @@ impl Client {
         let request_number = self.next_request_number;
         self.next_request_number += 1;
 
-        let packet = Packet::Request(Request::Async {
+        let request = Request::Async {
             number: request_number,
             method,
             args,
-        });
+        };
         let (sender, receiver) = oneshot::channel();
         self.pending_async_requests.insert(request_number, sender);
         self.sink
-            .send(packet.build())
+            .send(request)
             .await
             .map_err(|error| AsyncRequestError::Send { error })?;
         Ok(receiver

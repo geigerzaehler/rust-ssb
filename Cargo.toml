@@ -5,6 +5,13 @@ license = "ISC"
 authors = ["Thomas Scholtes <lambdaque@gmail.com>"]
 edition = "2018"
 
+[features]
+test-server = []
+
+[[example]]
+name = "server"
+required-features = ["test-server"]
+
 [dependencies]
 anyhow = "1.0"
 async-std = "1.3"

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Client {
-    base: crate::rpc::base::Client,
+    endpoint: crate::rpc::base::Endpoint,
 }
 
 impl Client {
@@ -19,13 +19,13 @@ impl Client {
         Stream_::Error: std::error::Error + Send + Sync + 'static,
     {
         Client {
-            base: crate::rpc::base::Client::new(sink, receive),
+            endpoint: crate::rpc::base::Endpoint::new_client(sink, receive),
         }
     }
 
     /// Get the underlying application agnostic client.
     pub fn base(&mut self) -> &mut crate::rpc::base::Client {
-        &mut self.base
+        self.endpoint.client()
     }
 
     /// Get all registered RPC methods .
@@ -60,7 +60,7 @@ impl Client {
         args: Vec<serde_json::Value>,
     ) -> Result<T, Error> {
         let method = method.iter().map(|s| String::from(*s)).collect();
-        let response = self.base.send_async(method, args).await?;
+        let response = self.endpoint.client().send_async(method, args).await?;
 
         match response {
             crate::rpc::base::AsyncResponse::Json(data) => {

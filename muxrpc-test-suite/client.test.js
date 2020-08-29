@@ -8,13 +8,15 @@ const muxrpc = require("muxrpc");
 const api = require("./api");
 
 suite("client", function () {
+  this.timeout(100);
+
   setup(async function () {
     this.client = muxrpc(api.manifest, null)();
     const clientStream = this.client.createStream();
 
     let serverStream;
-    if (process.env.SERVER_PORT) {
-      serverStream = toPull.duplex(net.connect(8080));
+    if (process.env.EXTERNAL_SERVER) {
+      serverStream = toPull.duplex(net.connect(process.env.EXTERNAL_SERVER));
     } else {
       this.server = muxrpc(null, api.manifest)(api.funcs);
       serverStream = this.server.createStream();
@@ -24,8 +26,7 @@ suite("client", function () {
   });
 
   teardown(async function () {
-    this.timeout(100);
-    if (this.client) {
+    if (this.client || !process.env.EXTERNAL_SERVER) {
       await close(this.client);
     }
     if (this.server) {
@@ -50,7 +51,7 @@ suite("client", function () {
     assert.equal(response, "foo");
   });
 
-  test("echoSource", async function () {
+  test("echoSource (no-rust)", async function () {
     const values = [1, 2, 3, 4, 5, 6];
     const valuesResult = await collect(this.client.echoSource(values));
     assert.deepStrictEqual(valuesResult, values);
@@ -62,7 +63,7 @@ suite("client", function () {
     assert.deepStrictEqual(errorResult, error);
   });
 
-  test("add", async function () {
+  test("add (no-rust)", async function () {
     const values = [1, 2, 3, 4, 5, 6];
     const { sink, source } = this.client.add(2);
     const added = values.map((x) => x + 2);
@@ -71,7 +72,7 @@ suite("client", function () {
     assert.deepStrictEqual(addedResult, added);
   });
 
-  test.skip("take", async function () {
+  test.skip("take (no-rust)", async function () {
     const values = [1, 2, 3, 4, 5, 6];
     const take = this.client.take(1);
     const endNotify = throughEndNotify();
@@ -88,7 +89,7 @@ suite("client", function () {
     assert.deepStrictEqual(outValues, lodash.take(values, 4));
   });
 
-  test("sinkExpect ok", async function () {
+  test("sinkExpect ok (no-rust)", async function () {
     const values = [1, 2, 3, 4, 5, 6];
     await new Promise((resolve, reject) => {
       const sink = this.client.sinkExpect(values, (err) => {
@@ -102,7 +103,7 @@ suite("client", function () {
     });
   });
 
-  test("sinkExpect fail", async function () {
+  test("sinkExpect fail (no-rust)", async function () {
     const values = [1, 2, 3, 4, 5, 6];
     await new Promise((resolve, reject) => {
       const sink = this.client.sinkExpect(values, (err) => {
@@ -119,14 +120,14 @@ suite("client", function () {
     });
   });
 
-  test("drainAbort", async function () {
+  test("drainAbort (no-rust)", async function () {
     const drain = this.client.drainAbort(1);
     const endNotify = throughEndNotify();
     pull(pullInfiniteThrottled(), endNotify, drain);
     await endNotify.ended;
   });
 
-  test("drainAbortError", async function () {
+  test("drainAbortError (no-rust)", async function () {
     const error = { name: "NAME", message: "MSG" };
     const errorResult = await new Promise((resolve, reject) => {
       const drainAbortError = this.client.drainAbortError(4, error, (err) => {
