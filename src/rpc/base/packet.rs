@@ -173,10 +173,9 @@ impl Packet {
                     body: Body::parse(header.body_type, body)?,
                 })
             } else {
-                if header.flags.is_end_or_error {
-                    tracing::error!(?header, ?body);
-                    todo!("request end or error")
-                }
+                // We are ignoring `header.flags.is_end_or_error`. It should
+                // always be set to `false` since `true` for async requests is
+                // unspecified.
                 let RequestBody { name, args } =
                     serde_json::from_slice(&body).map_err(|error| {
                         PacketParseError::RequestBody {
