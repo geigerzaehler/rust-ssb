@@ -8,7 +8,7 @@ use super::server::Server;
 #[derive(Debug)]
 pub struct Endpoint {
     client: Client,
-    server_task: async_std::task::JoinHandle<()>,
+    server_task: async_std::task::JoinHandle<anyhow::Result<()>>,
     packet_reader_task: async_std::task::JoinHandle<anyhow::Result<()>>,
     packet_sender_task: async_std::task::JoinHandle<anyhow::Result<()>>,
 }
@@ -75,7 +75,7 @@ impl Endpoint {
             server_task,
             ..
         } = self;
-        futures::try_join!(packet_reader_task, packet_sender_task, server_task.map(Ok))?;
+        futures::try_join!(packet_reader_task, packet_sender_task, server_task)?;
         Ok(())
     }
 
@@ -98,7 +98,8 @@ impl Endpoint {
                     Packet::Response(response) => response_sender.send(response).await?,
                 }
             } else {
-                return Err(anyhow::anyhow!("End of endpoint stream"));
+                tracing::debug!("end of endpoint stream");
+                return Ok(());
             }
         }
     }

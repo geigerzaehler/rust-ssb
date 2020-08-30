@@ -3,6 +3,8 @@ use futures::prelude::*;
 use futures::stream::BoxStream;
 
 use super::packet::{Body, Request, Response};
+pub use super::stream::RpcStreamItem;
+use super::stream::{forward_rpc_stream, RequestType, StreamRequest};
 
 #[derive(Debug)]
 pub enum AsyncResponse {
@@ -34,6 +36,16 @@ impl AsyncResponse {
         }
     }
 }
+#[derive(Debug)]
+enum RpcStream {
+    Source {
+        task: async_std::task::JoinHandle<anyhow::Result<()>>,
+    },
+    #[allow(dead_code)]
+    Sink,
+    #[allow(dead_code)]
+    Duplex,
+}
 
 pub trait Server: Sync + Send {
     fn handle_async(
@@ -46,41 +58,84 @@ pub trait Server: Sync + Send {
         &self,
         method: Vec<String>,
         args: Vec<serde_json::Value>,
-    ) -> BoxStream<'static, Body>;
+    ) -> BoxStream<'static, RpcStreamItem>;
 }
 
 pub async fn run<ResponseSink>(
     request_handler: &impl Server,
     request_stream: impl Stream<Item = Request> + Unpin,
     response_sink: ResponseSink,
-) where
+) -> anyhow::Result<()>
+where
     ResponseSink: Sink<Response> + Send + Unpin + Clone + 'static,
     ResponseSink::Error: std::error::Error + Send + Sync + 'static,
 {
+    // TODO errors
+    let mut streams = std::collections::HashMap::<u32, RpcStream>::new();
     request_stream
-        .for_each_concurrent(0, |request| {
+        .map(Result::<_, anyhow::Error>::Ok)
+        .try_for_each_concurrent(0, move |request| {
             let mut response_sink = response_sink.clone();
-            async move {
-                match request {
-                    Request::Async {
-                        number,
-                        method,
-                        args,
-                    } => {
-                        let response_fut = request_handler.handle_async(method, args);
-                        let response = response_fut.await;
-                        response_sink
-                            .send(response.into_response(number))
-                            .await
-                            .unwrap();
-                    }
-                    _ => todo!("server::run Request::Stream"),
+            match request {
+                Request::Async {
+                    number,
+                    method,
+                    args,
+                } => async move {
+                    let response = request_handler.handle_async(method, args).await;
+                    response_sink.send(response.into_response(number)).await?;
+                    Ok(())
                 }
+                .boxed(),
+                Request::StreamItem { number, body } => {
+                    #[allow(clippy::collapsible_if)]
+                    if let Some(stream) = streams.get(&number) {
+                        match &stream {
+                            RpcStream::Source { .. } => {
+                                todo!("server::Run cannot send to source stream")
+                            }
+                            _ => todo!("server::run Request::Stream exists"),
+                        }
+                    } else {
+                        let data = body.into_json().unwrap();
+                        let StreamRequest { name, type_, args } =
+                            serde_json::from_slice(&data).unwrap();
+                        let rpc_stream = match type_ {
+                            RequestType::Source => {
+                                let source = request_handler.handle_source(name, args);
+                                let task = async_std::task::spawn(
+                                    forward_rpc_stream(number, source, response_sink)
+                                        .map_err(anyhow::Error::from),
+                                );
+                                RpcStream::Source { task }
+                            }
+                            RequestType::Sink => todo!("server::run RequestType::Sink"),
+                            RequestType::Duplex => todo!("server::run RequestType::Duplex"),
+                        };
+                        streams.insert(number, rpc_stream);
+                    }
+                    async { Ok(()) }.boxed()
+                }
+                Request::StreamEnd { number } => {
+                    if let Some(stream) = streams.remove(&number) {
+                        match stream {
+                            RpcStream::Source { task } => async move {
+                                task.cancel().await;
+                                Ok(())
+                            }
+                            .boxed(),
+                            _ => todo!("server::run Request::Stream exists"),
+                        }
+                    } else {
+                        todo!("server::run Request::StreamEnd no stream found to end")
+                    }
+                }
+                Request::StreamError { .. } => todo!("server::run Request::StreamError"),
             }
         })
-        .await;
+        .await?;
+    Ok(())
 }
-
 #[derive(Debug)]
 pub struct NoServer;
 
@@ -97,7 +152,7 @@ impl Server for NoServer {
         &self,
         _method: Vec<String>,
         _args: Vec<serde_json::Value>,
-    ) -> BoxStream<'static, Body> {
+    ) -> BoxStream<'static, RpcStreamItem> {
         todo!("NoServer::handle_source")
     }
 }

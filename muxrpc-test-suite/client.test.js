@@ -51,7 +51,7 @@ suite("client", function () {
     assert.equal(response, "foo");
   });
 
-  test("echoSource (no-rust)", async function () {
+  test("echoSource", async function () {
     const values = [1, 2, 3, 4, 5, 6];
     const valuesResult = await collect(this.client.echoSource(values));
     assert.deepStrictEqual(valuesResult, values);

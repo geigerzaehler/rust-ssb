@@ -1,7 +1,8 @@
 use futures::prelude::*;
 
 use super::endpoint::Endpoint;
-use super::server::{AsyncResponse, Server};
+use super::packet::Body;
+use super::server::{AsyncResponse, RpcStreamItem, Server};
 
 struct TestRequestHandler;
 
@@ -34,10 +35,23 @@ impl Server for TestRequestHandler {
 
     fn handle_source(
         &self,
-        _method: Vec<String>,
-        _args: Vec<serde_json::Value>,
-    ) -> stream::BoxStream<'static, super::packet::Body> {
-        todo!("TestRequestHandler::handle_sync")
+        method: Vec<String>,
+        args: Vec<serde_json::Value>,
+    ) -> stream::BoxStream<'static, super::server::RpcStreamItem> {
+        let mut args = args;
+        match method.as_slice() {
+            [m] => match m.as_ref() {
+                "echoSource" => {
+                    let arg = args.pop().unwrap();
+                    let values = serde_json::from_value::<Vec<serde_json::Value>>(arg).unwrap();
+                    futures::stream::iter(values)
+                        .map(|value| RpcStreamItem::Data(Body::json(&value)))
+                        .boxed()
+                }
+                _ => todo!("TestRequestHandler::handle_source"),
+            },
+            _ => todo!("TestRequestHandler::handle_source"),
+        }
     }
 }
 
