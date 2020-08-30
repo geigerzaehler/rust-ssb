@@ -74,7 +74,7 @@ pub async fn run<ResponseSink>(
                             .await
                             .unwrap();
                     }
-                    Request::Stream { .. } => todo!("server::run Request::Stream"),
+                    _ => todo!("server::run Request::Stream"),
                 }
             }
         })

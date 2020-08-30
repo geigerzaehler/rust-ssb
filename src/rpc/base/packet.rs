@@ -26,12 +26,21 @@ pub enum Request {
         #[cfg_attr(test, proptest(value = "vec![]"))]
         args: Vec<serde_json::Value>,
     },
-    Stream {
+    StreamItem {
         #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
         number: u32,
-        #[cfg_attr(test, proptest(strategy = "proptest::bool::ANY"))]
-        is_end: bool,
         body: Body,
+    },
+    StreamEnd {
+        #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
+        number: u32,
+    },
+    StreamError {
+        #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
+        number: u32,
+        #[cfg_attr(test, proptest(strategy = "proptest::arbitrary::any::<String>()"))]
+        name: String,
+        message: String,
     },
 }
 
@@ -69,8 +78,6 @@ pub enum Response {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PacketParseError {
-    #[error("Invalid request type {typ}")]
-    InvalidRequestType { typ: String },
     #[error("Failed to decode JSON request body")]
     RequestBody {
         body: String,
@@ -93,42 +100,6 @@ pub enum PacketParseError {
         actual: BodyType,
         expected: BodyType,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-#[allow(dead_code)]
-pub enum RequestType {
-    Async,
-    Source,
-    Sink,
-    Duplex,
-}
-
-impl RequestType {
-    #[allow(dead_code)]
-    fn as_string(&self) -> String {
-        match self {
-            Self::Async => "async",
-            Self::Source => "source",
-            Self::Sink => "sink",
-            Self::Duplex => "duplex",
-        }
-        .to_string()
-    }
-
-    #[allow(dead_code)]
-    fn try_from_str(value: &str) -> Result<Self, PacketParseError> {
-        match value {
-            "async" => Ok(Self::Async),
-            "source" => Ok(Self::Source),
-            "sink" => Ok(Self::Sink),
-            "duplex" => Ok(Self::Duplex),
-            _ => Err(PacketParseError::InvalidRequestType {
-                typ: value.to_string(),
-            }),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -164,35 +135,48 @@ impl ErrorResponseBody {
 impl Packet {
     pub fn parse(header: Header, body: Vec<u8>) -> Result<Self, PacketParseError> {
         let request_number = header.request_number;
+        let body = Body::parse(header.body_type, body)?;
         #[allow(clippy::collapsible_if)]
         let packet = if request_number > 0 {
-            if header.flags.is_stream {
-                Packet::Request(Request::Stream {
-                    number: request_number as u32,
-                    is_end: header.flags.is_end_or_error,
-                    body: Body::parse(header.body_type, body)?,
-                })
+            let number = request_number as u32;
+            let request = if header.flags.is_stream {
+                if header.flags.is_end_or_error {
+                    let json = body.into_json()?;
+                    if json == b"true" {
+                        Request::StreamEnd { number }
+                    } else {
+                        let error = ErrorResponseBody::parse_json(&json)?;
+                        Request::StreamError {
+                            number,
+                            name: error.name,
+                            message: error.message,
+                        }
+                    }
+                } else {
+                    Request::StreamItem { number, body }
+                }
             } else {
                 // We are ignoring `header.flags.is_end_or_error`. It should
                 // always be set to `false` since `true` for async requests is
                 // unspecified.
+                let json = body.into_json()?;
                 let RequestBody { name, args } =
-                    serde_json::from_slice(&body).map_err(|error| {
+                    serde_json::from_slice(&json).map_err(|error| {
                         PacketParseError::RequestBody {
-                            body: String::from_utf8_lossy(&body).into_owned(),
+                            body: String::from_utf8_lossy(&json).into_owned(),
                             error,
                         }
                     })?;
-                Packet::Request(Request::Async {
+                Request::Async {
                     number: header.request_number as u32,
                     method: name,
                     args,
-                })
-            }
+                }
+            };
+            Packet::Request(request)
         } else {
-            let number = -header.request_number as u32;
+            let number = -request_number as u32;
             let response = if header.flags.is_stream {
-                let body = Body::parse(header.body_type, body)?;
                 if header.flags.is_end_or_error {
                     let json = body.into_json()?;
                     if json == b"true" {
@@ -210,7 +194,6 @@ impl Packet {
                 }
             } else {
                 if header.flags.is_end_or_error {
-                    let body = Body::parse(header.body_type, body)?;
                     let error = ErrorResponseBody::parse(body)?;
                     Response::AsyncErr {
                         number,
@@ -218,7 +201,6 @@ impl Packet {
                         message: error.message,
                     }
                 } else {
-                    let body = Body::parse(header.body_type, body)?;
                     Response::AsyncOk { number, body }
                 }
             };
@@ -240,15 +222,27 @@ impl Packet {
                     is_end_or_error: false,
                     body: Body::json(&RequestBody { name: method, args }),
                 },
-                Request::Stream {
-                    number,
-                    is_end,
+                Request::StreamItem { number, body } => RawPacket {
+                    request_number: number as i32,
+                    is_stream: true,
+                    is_end_or_error: false,
                     body,
+                },
+                Request::StreamEnd { number } => RawPacket {
+                    request_number: number as i32,
+                    is_stream: true,
+                    is_end_or_error: true,
+                    body: Body::json(&true),
+                },
+                Request::StreamError {
+                    number,
+                    name,
+                    message,
                 } => RawPacket {
                     request_number: number as i32,
                     is_stream: true,
-                    is_end_or_error: is_end,
-                    body,
+                    is_end_or_error: true,
+                    body: Body::json(&ErrorResponseBody { name, message }),
                 },
             },
             Packet::Response(response) => match response {
@@ -327,7 +321,7 @@ impl Body {
         Self::Json(serde_json::to_vec(value).unwrap())
     }
 
-    fn into_json(self) -> Result<Vec<u8>, PacketParseError> {
+    pub(crate) fn into_json(self) -> Result<Vec<u8>, PacketParseError> {
         match self {
             Body::Blob(_) => Err(PacketParseError::UnexpectedBodyType {
                 actual: BodyType::Binary,
