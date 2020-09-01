@@ -24,6 +24,8 @@ pub enum NextPacketError {
         #[from]
         PacketParseError,
     ),
+    #[error("Unexpected end of stream while parsing packet")]
+    UnexpectedEndOfStream,
 }
 
 #[pin_project::pin_project]
@@ -63,21 +65,27 @@ where
                     Some(Err(err)) => {
                         return Poll::Ready(Some(Err(NextPacketError::Source(Box::new(err)))))
                     }
-                    None => return Poll::Ready(None),
+                    None => {
+                        if this.reader.is_empty() {
+                            return Poll::Ready(None);
+                        } else {
+                            return Poll::Ready(Some(Err(NextPacketError::UnexpectedEndOfStream)));
+                        }
+                    }
                 };
             }
 
             if let Some(packet_result) = this.reader.put(&mut this.buffer) {
-                return Poll::Ready(Some(packet_result));
+                return Poll::Ready(packet_result.transpose());
             }
         }
     }
 }
 
-#[derive(Debug)]
 /// Buffer that is fed bytes until it produces [Packet].
 ///
 /// Call [PacketReader::put] repeatedly until a [Packet] or an error is returned.
+#[derive(Debug)]
 enum PacketReader {
     ReadingHeader { buffer: ReadBuffer },
     ReadingBody { header: Header, buffer: ReadBuffer },
@@ -90,7 +98,10 @@ impl PacketReader {
         }
     }
 
-    fn put(&mut self, mut data: impl bytes::Buf) -> Option<Result<Packet, NextPacketError>> {
+    fn put(
+        &mut self,
+        mut data: impl bytes::Buf,
+    ) -> Option<Result<Option<Packet>, NextPacketError>> {
         loop {
             if !data.has_remaining() {
                 return None;
@@ -100,18 +111,22 @@ impl PacketReader {
                 Self::ReadingHeader { buffer } => {
                     use std::convert::TryInto as _;
                     let header_data = buffer.put(&mut data)?;
-                    // .try_into() is guaranteed to not fail since we the buffer holds exactly
-                    // Header::SIZE bytes.
+                    // .try_into() is guaranteed to not fail since the buffer
+                    // holds exactly Header::SIZE bytes.
                     let header_data = header_data.as_slice().try_into().unwrap();
                     let header = match Header::parse(header_data) {
-                        Ok(header) => header,
+                        Ok(Some(header)) => header,
+                        Ok(None) => {
+                            return Some(Ok(None));
+                        }
                         Err(err) => return Some(Err(NextPacketError::InvalidHeader(err))),
                     };
                     if header.body_len == 0 {
                         *self = Self::new();
-                        return Some(
-                            Packet::parse(header, Vec::new()).map_err(NextPacketError::PacketParse),
-                        );
+                        return match Packet::parse(header, Vec::new()) {
+                            Ok(packet) => Some(Ok(Some(packet))),
+                            Err(err) => Some(Err(NextPacketError::PacketParse(err))),
+                        };
                     }
 
                     *self = Self::ReadingBody {
@@ -121,12 +136,21 @@ impl PacketReader {
                 }
                 Self::ReadingBody { header, buffer } => {
                     let body_data = buffer.put(&mut data)?;
-                    let packet_result =
-                        Packet::parse(*header, body_data).map_err(NextPacketError::PacketParse);
+                    let packet_result = match Packet::parse(*header, body_data) {
+                        Ok(packet) => Ok(Some(packet)),
+                        Err(err) => Err(NextPacketError::PacketParse(err)),
+                    };
                     *self = Self::new();
                     return Some(packet_result);
                 }
             }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        match self {
+            PacketReader::ReadingHeader { buffer } => buffer.is_empty(),
+            PacketReader::ReadingBody { .. } => false,
         }
     }
 }
@@ -138,7 +162,7 @@ mod test {
 
     #[proptest]
     fn read_packets(
-        #[strategy(proptest::collection::vec(any::<Packet>(), 1..10))] packets: Vec<Packet>,
+        #[strategy(proptest::collection::vec(any::<Packet>(), 0..10))] packets: Vec<Packet>,
         chunks: proptest::sample::Index,
     ) {
         async_std::task::block_on(async move {
@@ -147,6 +171,8 @@ mod test {
             let packet_data = packets
                 .into_iter()
                 .map(|packet| packet.build())
+                // Insert the "goodbye" header and some garbage
+                .chain(vec![vec![0u8; Header::SIZE], vec![1u8; Header::SIZE]])
                 .collect::<Vec<Vec<u8>>>()
                 .concat();
             let chunks = chunks.index(packet_data.len());
@@ -162,5 +188,19 @@ mod test {
             prop_assert_eq!(packets_received, packets2);
             Ok(())
         })?;
+    }
+
+    #[async_std::test]
+    async fn unexpected_end_of_stream() {
+        let packet_data = vec![1u8; Header::SIZE];
+        let packet_data_source = futures::stream::once(async move { packet_data })
+            .map(Result::<_, std::convert::Infallible>::Ok);
+        let result = PacketStream::new(packet_data_source)
+            .try_for_each(|_| async { Ok(()) })
+            .await;
+        match result.unwrap_err() {
+            NextPacketError::UnexpectedEndOfStream => (),
+            e => panic!("Unexpected error {:?}", e),
+        }
     }
 }

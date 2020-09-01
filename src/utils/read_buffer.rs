@@ -54,6 +54,10 @@ impl ReadBuffer {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.read_count == 0
+    }
+
     fn finish(&mut self) -> Vec<u8> {
         self.read_count = 0;
         std::mem::replace(&mut self.data, Vec::new())

@@ -50,8 +50,13 @@ const IS_END_OR_ERROR_MASK: u8 = 0b0100;
 impl Header {
     pub const SIZE: usize = 9;
 
-    pub fn parse(data: [u8; Self::SIZE]) -> Result<Self, HeaderParseError> {
+    pub fn parse(data: [u8; Self::SIZE]) -> Result<Option<Self>, HeaderParseError> {
         use bytes::Buf as _;
+
+        if data == [0u8; Self::SIZE] {
+            return Ok(None);
+        }
+
         let mut bytes = bytes::Bytes::copy_from_slice(&data);
 
         let flags = bytes.get_u8();
@@ -62,7 +67,7 @@ impl Header {
         let request_number = bytes.get_i32();
         debug_assert!(!bytes.has_remaining());
 
-        Ok(Self {
+        Ok(Some(Self {
             flags: HeaderFlags {
                 is_stream,
                 is_end_or_error,
@@ -70,7 +75,7 @@ impl Header {
             body_type,
             body_len,
             request_number,
-        })
+        }))
     }
 
     pub fn build(&self) -> [u8; Self::SIZE] {
@@ -100,15 +105,15 @@ mod test {
 
     #[proptest]
     fn header_parse_build(header: Header) {
-        prop_assert_eq!(Header::parse(header.build()).unwrap(), header);
+        prop_assert_eq!(Header::parse(header.build()).unwrap().unwrap(), header);
     }
 
     #[proptest]
     fn header_build_parse(mut header_data: [u8; Header::SIZE]) {
         header_data[0] &= 0b0000_1111;
         let header = match Header::parse(header_data) {
-            Ok(header) => header,
-            Err(_) => prop_reject!(),
+            Ok(Some(header)) => header,
+            _ => prop_reject!(),
         };
         prop_assert_eq!(header.build(), header_data);
     }
@@ -118,5 +123,12 @@ mod test {
         header_data[0] |= 0b0000_0011;
         let result = Header::parse(header_data);
         prop_assert_eq!(result, Err(HeaderParseError::InvalidBodyType { value: 3 }));
+    }
+
+    #[test]
+    fn end_header() {
+        let header_data = [0u8; Header::SIZE];
+        let opt_header = Header::parse(header_data).unwrap();
+        assert_eq!(opt_header, None);
     }
 }
