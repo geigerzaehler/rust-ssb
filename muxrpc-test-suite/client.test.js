@@ -26,7 +26,7 @@ suite("client", function () {
   });
 
   teardown(async function () {
-    if (this.client || !process.env.EXTERNAL_SERVER) {
+    if (this.client) {
       await close(this.client);
     }
     if (this.server) {
@@ -35,7 +35,11 @@ suite("client", function () {
 
     function close(endpoint) {
       return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          endpoint.close(new Error("Timeout closing muxrpc endpoint"));
+        }, 50);
         endpoint.close((err) => {
+          clearTimeout(timeout);
           if (err && err !== true) {
             reject(err);
           } else {
@@ -117,6 +121,13 @@ suite("client", function () {
         }
       });
       pull(pull.values(values.slice(0, -1)), sink);
+    });
+  });
+
+  test("infiniteSource abort (no-rust)", async function () {
+    const source = this.client.infiniteSource();
+    await new Promise((resolve) => {
+      pull(source, pull.take(10), pull.onEnd(resolve));
     });
   });
 
