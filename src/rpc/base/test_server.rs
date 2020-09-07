@@ -1,3 +1,4 @@
+use anyhow::Context;
 use futures::prelude::*;
 
 use super::endpoint::Endpoint;
@@ -63,30 +64,22 @@ struct EchoError {
 
 pub async fn run(bind_addr: impl async_std::net::ToSocketAddrs) -> anyhow::Result<()> {
     let listener = async_std::net::TcpListener::bind(bind_addr).await?;
-    loop {
-        let (stream, addr) = listener.accept().await?;
-        tracing::info!(?addr, "accepted connection");
-        async_std::task::spawn(handle_incoming(stream, addr));
-    }
+    listener
+        .incoming()
+        .map_err(anyhow::Error::from)
+        .try_for_each_concurrent(100, handle_incoming)
+        .await?;
+    Ok(())
 }
 
-async fn handle_incoming(stream: async_std::net::TcpStream, addr: std::net::SocketAddr) {
-    if let Err(err) = handle_incoming_(stream, addr).await {
-        tracing::error!("{:#?}", err)
-    }
-}
-
-async fn handle_incoming_(
-    stream: async_std::net::TcpStream,
-    addr: std::net::SocketAddr,
-) -> anyhow::Result<()> {
-    tracing::info!(?addr, "connected to client");
+async fn handle_incoming(stream: async_std::net::TcpStream) -> anyhow::Result<()> {
+    tracing::info!(addr = ?stream.peer_addr().unwrap(), "connected to client");
     let (read, write) = stream.split();
     let endpoint = Endpoint::new(
         write.into_sink(),
         crate::utils::read_to_stream(read),
         TestRequestHandler,
     );
-    endpoint.join().await?;
+    endpoint.join().await.context("Endpoint::join failed")?;
     Ok(())
 }
