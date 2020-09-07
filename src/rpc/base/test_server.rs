@@ -17,8 +17,8 @@ impl Server for TestRequestHandler {
             let mut args = args;
             match method.as_slice() {
                 [m] => match m.as_ref() {
-                    "echo" => AsyncResponse::json_ok(&args[0]),
-                    "errorAsync" => {
+                    "asyncEcho" => AsyncResponse::json_ok(&args[0]),
+                    "asyncError" => {
                         let arg = args.pop().unwrap();
                         let echo_error = serde_json::from_value::<EchoError>(arg).unwrap();
                         AsyncResponse::Err {
@@ -42,7 +42,7 @@ impl Server for TestRequestHandler {
         let mut args = args;
         match method.as_slice() {
             [m] => match m.as_ref() {
-                "echoSource" => {
+                "sourceEcho" => {
                     let arg = args.pop().unwrap();
                     let values = serde_json::from_value::<Vec<serde_json::Value>>(arg).unwrap();
                     futures::stream::iter(values)

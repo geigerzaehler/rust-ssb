@@ -50,24 +50,24 @@ suite("client", function () {
     }
   });
 
-  test("echo", async function () {
-    const response = await this.client.echo("foo");
+  test("asyncEcho", async function () {
+    const response = await this.client.asyncEcho("foo");
     assert.equal(response, "foo");
   });
 
-  test("echoSource", async function () {
-    const values = [1, 2, 3, 4, 5, 6];
-    const valuesResult = await collect(this.client.echoSource(values));
-    assert.deepStrictEqual(valuesResult, values);
-  });
-
-  test("errorAsync", async function () {
+  test("asyncError", async function () {
     const error = { name: "NAME", message: "MSG" };
-    const errorResult = await this.client.errorAsync(error).catch((e) => e);
+    const errorResult = await this.client.asyncError(error).catch((e) => e);
     assert.deepStrictEqual(errorResult, error);
   });
 
-  test("sourceErr (no-rust)", async function () {
+  test("sourceEcho", async function () {
+    const values = [1, 2, 3, 4, 5, 6];
+    const valuesResult = await collect(this.client.sourceEcho(values));
+    assert.deepStrictEqual(valuesResult, values);
+  });
+
+  test("sourceError", async function () {
     const error = { name: "NAME", message: "MSG" };
     const values = [1, 2, 3, 4, 5, 6];
     const errorResult = await collect(
@@ -75,6 +75,13 @@ suite("client", function () {
     ).catch((e) => e);
 
     assert.deepStrictEqual(errorResult, error);
+  });
+
+  test("sourceInifite abort", async function () {
+    const source = this.client.sourceInifite();
+    await new Promise((resolve) => {
+      pull(source, pull.take(10), pull.onEnd(resolve));
+    });
   });
 
   test("add (no-rust)", async function () {
@@ -134,24 +141,17 @@ suite("client", function () {
     });
   });
 
-  test("infiniteSource abort", async function () {
-    const source = this.client.infiniteSource();
-    await new Promise((resolve) => {
-      pull(source, pull.take(10), pull.onEnd(resolve));
-    });
-  });
-
-  test("drainAbort (no-rust)", async function () {
-    const drain = this.client.drainAbort(1);
+  test("sinkAbort (no-rust)", async function () {
+    const drain = this.client.sinkAbort(1);
     const endNotify = throughEndNotify();
     pull(pullInfiniteThrottled(), endNotify, drain);
     await endNotify.ended;
   });
 
-  test("drainAbortError (no-rust)", async function () {
+  test("sinkAbortError (no-rust)", async function () {
     const error = { name: "NAME", message: "MSG" };
     const errorResult = await new Promise((resolve, reject) => {
-      const drainAbortError = this.client.drainAbortError(4, error, (err) => {
+      const drainAbortError = this.client.sinkAbortError(4, error, (err) => {
         if (err) {
           resolve(err);
         } else {

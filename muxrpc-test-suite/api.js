@@ -4,14 +4,14 @@ const pull = require("pull-stream");
 
 const api = {
   // Responds with the first argument
-  echo: {
+  asyncEcho: {
     type: "async",
     func: async (value) => value,
   },
 
   // Always responds with an error. Uses the first argument as the
   // error object.
-  errorAsync: {
+  asyncError: {
     type: "async",
     func: async (error) => {
       throw error;
@@ -20,10 +20,37 @@ const api = {
 
   // Takes an array of values as the first argument and streams the
   // values back.
-  echoSource: {
+  sourceEcho: {
     type: "source",
     func: (values) => {
       return pull.values(values);
+    },
+  },
+
+  // Emits an error on the source after emitting the given values.
+  sourceError: {
+    type: "source",
+    func: (values, error) => {
+      values = values.slice();
+      return function (_end, cb) {
+        if (values.length == 0) {
+          cb(error);
+        } else {
+          cb(null, values.pop());
+        }
+      };
+    },
+  },
+
+  // Source that emits the value `0` every millisecond.
+  sourceInifite: {
+    type: "source",
+    func: () => {
+      return function pullInfiniteThrottledSource(end, cb) {
+        if (!end) {
+          setTimeout(() => cb(null, 0), 1);
+        }
+      };
     },
   },
 
@@ -71,7 +98,7 @@ const api = {
 
   // Takes a number `n` as an argument. Consumes `n` items from the
   // input stream and then aborts.
-  drainAbort: {
+  sinkAbort: {
     type: "sink",
     func: (n) => {
       return pull(pull.take(n), pull.drain());
@@ -80,7 +107,7 @@ const api = {
 
   // Takes a number `n` and an error `e` as arguments. Consumes `n`
   // items from the input stream and then aborts with error `e`
-  drainAbortError: {
+  sinkAbortError: {
     type: "sink",
     func: (n, err) => {
       const sink = pull.drain(() => {
@@ -91,33 +118,6 @@ const api = {
         }
       });
       return sink;
-    },
-  },
-
-  // Source that emits the value `0` every millisecond.
-  infiniteSource: {
-    type: "source",
-    func: () => {
-      return function pullInfiniteThrottledSource(end, cb) {
-        if (!end) {
-          setTimeout(() => cb(null, 0), 1);
-        }
-      };
-    },
-  },
-
-  // Emits an error on the source after emitting the given values.
-  sourceError: {
-    type: "source",
-    func: (values, error) => {
-      values = values.slice();
-      return function (_end, cb) {
-        if (values.length == 0) {
-          cb(error);
-        } else {
-          cb(null, values.pop());
-        }
-      };
     },
   },
 };
