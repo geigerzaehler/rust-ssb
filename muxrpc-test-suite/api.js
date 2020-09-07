@@ -93,6 +93,33 @@ const api = {
       return sink;
     },
   },
+
+  // Source that emits the value `0` every millisecond.
+  infiniteSource: {
+    type: "source",
+    func: () => {
+      return function pullInfiniteThrottledSource(end, cb) {
+        if (!end) {
+          setTimeout(() => cb(null, 0), 1);
+        }
+      };
+    },
+  },
+
+  // Emits an error on the source after emitting the given values.
+  sourceError: {
+    type: "source",
+    func: (values, error) => {
+      values = values.slice();
+      return function (_end, cb) {
+        if (values.length == 0) {
+          cb(error);
+        } else {
+          cb(null, values.pop());
+        }
+      };
+    },
+  },
 };
 
 module.exports.api = api;

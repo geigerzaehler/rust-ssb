@@ -67,6 +67,16 @@ suite("client", function () {
     assert.deepStrictEqual(errorResult, error);
   });
 
+  test("sourceErr (no-rust)", async function () {
+    const error = { name: "NAME", message: "MSG" };
+    const values = [1, 2, 3, 4, 5, 6];
+    const errorResult = await collect(
+      this.client.sourceError(values, error)
+    ).catch((e) => e);
+
+    assert.deepStrictEqual(errorResult, error);
+  });
+
   test("add (no-rust)", async function () {
     const values = [1, 2, 3, 4, 5, 6];
     const { sink, source } = this.client.add(2);
@@ -124,7 +134,7 @@ suite("client", function () {
     });
   });
 
-  test("infiniteSource abort (no-rust)", async function () {
+  test("infiniteSource abort", async function () {
     const source = this.client.infiniteSource();
     await new Promise((resolve) => {
       pull(source, pull.take(10), pull.onEnd(resolve));
