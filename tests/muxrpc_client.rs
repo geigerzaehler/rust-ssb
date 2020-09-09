@@ -8,7 +8,7 @@ async fn echo_string() -> anyhow::Result<()> {
     let result = endpoint
         .client()
         .send_async(
-            vec!["echo".to_string()],
+            vec!["asyncEcho".to_string()],
             vec![serde_json::json!("hello world")],
         )
         .await?;
@@ -30,7 +30,7 @@ async fn echo_json() -> anyhow::Result<()> {
     });
     let result = endpoint
         .client()
-        .send_async(vec!["echo".to_string()], vec![payload.clone()])
+        .send_async(vec!["asyncEcho".to_string()], vec![payload.clone()])
         .await?;
 
     assert_eq!(
@@ -51,7 +51,7 @@ async fn echo_error() -> anyhow::Result<()> {
     });
     let result = endpoint
         .client()
-        .send_async(vec!["errorAsync".to_string()], vec![payload.clone()])
+        .send_async(vec!["asyncError".to_string()], vec![payload.clone()])
         .await?;
 
     assert_eq!(
