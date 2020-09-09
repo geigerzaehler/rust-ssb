@@ -56,7 +56,7 @@ pub fn load(path: &Path) -> Result<crypto::sign::SecretKey, LoadError> {
 
 /// `load()` secret key default secret file `~/.ssb/secret`.
 pub fn load_default() -> Result<crypto::sign::SecretKey, LoadError> {
-    let home_dir = dirs::home_dir().ok_or_else(|| LoadError::NoHomeDir)?;
+    let home_dir = dirs::home_dir().ok_or(LoadError::NoHomeDir)?;
     let path = home_dir.join(".ssb").join("secret");
     load(&path)
 }
