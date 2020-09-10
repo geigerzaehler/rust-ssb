@@ -67,7 +67,12 @@ pub async fn run(bind_addr: impl async_std::net::ToSocketAddrs) -> anyhow::Resul
     listener
         .incoming()
         .map_err(anyhow::Error::from)
-        .try_for_each_concurrent(100, handle_incoming)
+        .try_for_each_concurrent(100, |x| async move {
+            std::panic::AssertUnwindSafe(handle_incoming(addr))
+                .catch_unwind()
+                .await
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("client handler panicked")))
+        })
         .await?;
     Ok(())
 }
