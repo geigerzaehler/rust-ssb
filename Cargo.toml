@@ -41,7 +41,7 @@ xtra = { version = "0.4.2", features = ["with-async_std-1"] }
 assert_cmd = "1.0.1"
 async-pipe = { version = "0.1.3", features = ["futures"] }
 async-std = { version = "1.6", features = ["attributes" ] }
-duplexify = "1.1"
+duplexify = "1.2"
 goldenfile = "1.1"
 proptest = "0.10"
 proptest-attributes = { git = "https://github.com/thomaseizinger/proptest", rev = "215589dd021b16b2f0a7e71426a299d7c38a19ae" }

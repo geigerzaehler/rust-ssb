@@ -425,9 +425,9 @@ checksum = "fea41bba32d969b513997752735605054bc0dfa92b4c56bf1189f2e174be7a10"
 
 [[package]]
 name = "duplexify"
-version = "1.1.0"
+version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "811c26ecbb7d00f8670f8cecc773119a08fb8fed98527dd57f8a27bef6ca02ce"
+checksum = "ba739e4c2cd1c2489aab1a7852bc4ab9bf822d7cc56eba397917753edaf71f05"
 dependencies = [
  "async-std",
  "pin-project-lite",
