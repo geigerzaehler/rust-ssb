@@ -14,7 +14,8 @@ required-features = ["test-server"]
 
 [dependencies]
 anyhow = "1.0"
-async-std = "1.3"
+async-std = { version = "1.6", features = ["unstable" ] }
+async-trait = "0.1"
 base64 = "0.12"
 bytes = "0.5"
 chashmap = "2.0"
@@ -34,11 +35,12 @@ thiserror = "1.0.7"
 tracing = "0.1"
 tracing-futures = "0.2"
 tracing-subscriber = "0.2"
+xtra = { version = "0.4.2", features = ["with-async_std-1"] }
 
 [dev-dependencies]
 assert_cmd = "1.0.1"
 async-pipe = { version = "0.1.3", features = ["futures"] }
-async-std = { version = "1.3", features = ["attributes" ] }
+async-std = { version = "1.6", features = ["attributes" ] }
 duplexify = "1.1"
 goldenfile = "1.1"
 proptest = "0.10"

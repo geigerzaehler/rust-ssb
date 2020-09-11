@@ -30,22 +30,32 @@ impl Endpoint {
         let (in_responses_sender, in_responses_receiver) = futures::channel::mpsc::channel(10);
         let (out_responses_sender, out_responses_receiver) = futures::channel::mpsc::channel(10);
         let client = Client::new(out_requests_sender, in_responses_receiver);
-        let server_task = async_std::task::spawn(async move {
-            super::server::run(&request_handler, in_requests_receiver, out_responses_sender).await
-        });
-        let packet_reader_task = async_std::task::spawn(async move {
-            Self::read_packets(receive, in_requests_sender, in_responses_sender).await
-        });
-        let packet_sender_task = async_std::task::spawn(async move {
-            let result = futures::stream::select(
-                out_requests_receiver.map(Packet::Request),
-                out_responses_receiver.map(Packet::Response),
-            )
-            .map(|packet| Ok(packet.build()))
-            .forward(send)
-            .await;
-            result.map_err(anyhow::Error::from)
-        });
+        let server_task = async_std::task::Builder::new()
+            .name("rpc endpoint server".to_string())
+            .spawn(async move {
+                super::server::run(request_handler, in_requests_receiver, out_responses_sender)
+                    .await
+            })
+            .unwrap();
+        let packet_reader_task = async_std::task::Builder::new()
+            .name("rpc endpoint packet_reader".to_string())
+            .spawn(async move {
+                Self::read_packets(receive, in_requests_sender, in_responses_sender).await
+            })
+            .unwrap();
+        let packet_sender_task = async_std::task::Builder::new()
+            .name("rpc endpoint packet_sender".to_string())
+            .spawn(async move {
+                let result = futures::stream::select(
+                    out_requests_receiver.map(Packet::Request),
+                    out_responses_receiver.map(Packet::Response),
+                )
+                .map(|packet| Ok(packet.build()))
+                .forward(send)
+                .await;
+                result.map_err(anyhow::Error::from)
+            })
+            .unwrap();
         Self {
             client,
             server_task,

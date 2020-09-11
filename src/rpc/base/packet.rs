@@ -59,7 +59,7 @@ pub enum Response {
         name: String,
         message: String,
     },
-    StreamItem {
+    StreamData {
         #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
         number: u32,
         body: Body,
@@ -190,7 +190,7 @@ impl Packet {
                         }
                     }
                 } else {
-                    Response::StreamItem { number, body }
+                    Response::StreamData { number, body }
                 }
             } else {
                 if header.flags.is_end_or_error {
@@ -263,7 +263,7 @@ impl Packet {
                     body: Body::json(&ErrorResponseBody { name, message }),
                 },
 
-                Response::StreamItem { number, body } => RawPacket {
+                Response::StreamData { number, body } => RawPacket {
                     request_number: -(number as i32),
                     is_stream: true,
                     is_end_or_error: false,

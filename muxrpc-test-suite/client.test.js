@@ -110,7 +110,7 @@ suite("client", function () {
     assert.deepStrictEqual(outValues, lodash.take(values, 4));
   });
 
-  test("sinkExpect ok (no-rust)", async function () {
+  test("sinkExpect ok", async function () {
     const values = [1, 2, 3, 4, 5, 6];
     await new Promise((resolve, reject) => {
       const sink = this.client.sinkExpect(values, (err) => {
@@ -124,7 +124,7 @@ suite("client", function () {
     });
   });
 
-  test("sinkExpect fail (no-rust)", async function () {
+  test("sinkExpect fail to few (no-rust)", async function () {
     const values = [1, 2, 3, 4, 5, 6];
     await new Promise((resolve, reject) => {
       const sink = this.client.sinkExpect(values, (err) => {
