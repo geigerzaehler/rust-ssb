@@ -120,7 +120,18 @@ suite("client", function () {
           resolve();
         }
       });
-      pull(pull.values(values), sink);
+      // We can’t use pull.values() because this terminates the sink
+      // and calls the method callback when the source ends—thus
+      // masking any errors.
+      pull(function (end, cb) {
+        if (!end) {
+          if (values.length) {
+            setTimeout(() => cb(null, values.shift()), 3);
+          } else {
+            cb(true);
+          }
+        }
+      }, sink);
     });
   });
 
