@@ -3,12 +3,12 @@ use futures::prelude::*;
 use xtra::prelude::*;
 
 use super::responder::Responder;
+use super::service::{Error, Service, StreamItem};
 use super::stream_worker::{RequestMessage, SinkWorker, SourceWorker};
-use super::{Error, Server, StreamItem};
 use crate::rpc::base::packet::{Request, Response};
 
 pub async fn run<ResponseSink>(
-    request_handler: impl Server + 'static,
+    service: Service,
     request_stream: impl Stream<Item = Request> + Unpin + 'static + Send,
     response_sink: ResponseSink,
 ) -> anyhow::Result<()>
@@ -19,7 +19,7 @@ where
     let mut request_stream = request_stream;
     let responder = Responder::new(response_sink);
     let mut request_dispatcher = RequestDispatcher {
-        server: Box::new(request_handler),
+        service,
         responder,
         streams: std::collections::HashMap::new(),
     };
@@ -30,20 +30,21 @@ where
 }
 
 struct RequestDispatcher {
-    server: Box<dyn Server>,
+    service: Service,
     responder: Responder,
     streams: std::collections::HashMap<u32, xtra::MessageChannel<RequestMessage>>,
 }
 
 impl RequestDispatcher {
     fn handle_request(&mut self, msg: Request) -> anyhow::Result<()> {
+        tracing::trace!(?msg, "handle request");
         match msg {
             Request::Async {
                 number,
                 method,
                 args,
             } => {
-                let response_fut = self.server.handle_async(method, args);
+                let response_fut = self.service.handle_async(method, args);
                 let responder = self.responder.clone();
                 async_std::task::spawn(async move {
                     let response = response_fut.await;
@@ -53,7 +54,7 @@ impl RequestDispatcher {
                         .unwrap();
                 });
             }
-            Request::StreamItem { number, body } => {
+            Request::StreamData { number, body } => {
                 if let Some(stream) = self.streams.get(&number) {
                     stream
                         .do_send(RequestMessage(StreamItem::Data(body)))
@@ -64,12 +65,12 @@ impl RequestDispatcher {
                         serde_json::from_slice(&data).context("Failed to parse stream request")?;
                     let rpc_stream = match type_ {
                         RequestType::Source => {
-                            let source = self.server.handle_source(name, args);
+                            let source = self.service.handle_source(name, args);
                             let responder = self.responder.clone();
                             SourceWorker::start(responder.stream(number), source).into_channel()
                         }
                         RequestType::Sink => {
-                            let sink = self.server.handle_sink(name, args);
+                            let sink = self.service.handle_sink(name, args);
                             let responder = self.responder.clone();
                             SinkWorker::start(responder.stream(number), sink).into_channel()
                         }

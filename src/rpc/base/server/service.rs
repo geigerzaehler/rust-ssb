@@ -95,23 +95,11 @@ pub enum SinkError {
     Error(Error),
 }
 
-pub type BoxSource = BoxStream<'static, Result<Body, Error>>;
+pub(super) type BoxSource = BoxStream<'static, Result<Body, Error>>;
 
-pub type BoxSink = Pin<Box<dyn Sink<StreamItem, Error = SinkError> + Unpin + Send + Sync>>;
+pub(super) type BoxSink = Pin<Box<dyn Sink<StreamItem, Error = SinkError> + Send>>;
 
-pub trait Server: Send {
-    fn handle_async(
-        &self,
-        method: Vec<String>,
-        args: Vec<serde_json::Value>,
-    ) -> BoxFuture<'static, AsyncResponse>;
-
-    fn handle_source(&self, method: Vec<String>, args: Vec<serde_json::Value>) -> BoxSource;
-
-    fn handle_sink(&self, method: Vec<String>, args: Vec<serde_json::Value>) -> BoxSink;
-}
-
-pub fn error_sink(error: Error) -> BoxSink {
+pub fn error_sink(error: Error) -> impl Sink<StreamItem, Error = SinkError> {
     Box::pin(
         futures::sink::drain::<StreamItem>()
             .sink_map_err(|infallible| match infallible {})
@@ -119,12 +107,13 @@ pub fn error_sink(error: Error) -> BoxSink {
     )
 }
 
-pub fn error_source(error: Error) -> BoxSource {
-    futures::stream::once(futures::future::ready(Err(error))).boxed()
+pub fn error_source(error: Error) -> impl Stream<Item = Result<Body, Error>> + Send + 'static {
+    futures::stream::once(futures::future::ready(Err(error)))
 }
 
 type Handler<T> = Box<dyn Fn(Vec<serde_json::Value>) -> T + Send + 'static>;
 
+#[derive(Default)]
 pub struct Service {
     async_handlers: HashMap<Vec<String>, Handler<BoxFuture<'static, AsyncResponse>>>,
     source_handlers: HashMap<Vec<String>, Handler<BoxSource>>,
@@ -133,23 +122,22 @@ pub struct Service {
 
 impl Service {
     pub fn new() -> Self {
-        Self {
-            async_handlers: HashMap::new(),
-            source_handlers: HashMap::new(),
-            sink_handlers: HashMap::new(),
-        }
+        Self::default()
     }
-    pub fn add_async<T: serde::de::DeserializeOwned>(
+    pub fn add_async<Args, Fut>(
         &mut self,
         method: impl ToString,
-        f: impl Fn(T) -> BoxFuture<'static, AsyncResponse> + Send + 'static,
-    ) {
+        f: impl Fn(Args) -> Fut + Send + 'static,
+    ) where
+        Args: serde::de::DeserializeOwned,
+        Fut: Future<Output = AsyncResponse> + Send + 'static,
+    {
         self.async_handlers.insert(
             vec![method.to_string()],
             Box::new(move |args| {
                 let args = serde_json::Value::Array(args);
-                match serde_json::from_value::<T>(args) {
-                    Ok(args) => f(args),
+                match serde_json::from_value::<Args>(args) {
+                    Ok(args) => f(args).boxed(),
                     Err(error) => futures::future::ready(AsyncResponse::Err(
                         Error::deserialize_arguments(error),
                     ))
@@ -159,35 +147,41 @@ impl Service {
         );
     }
 
-    pub fn add_source<T: serde::de::DeserializeOwned>(
+    pub fn add_source<Args, Source>(
         &mut self,
         method: impl ToString,
-        f: impl Fn(T) -> BoxSource + Send + 'static,
-    ) {
+        f: impl Fn(Args) -> Source + Send + 'static,
+    ) where
+        Source: Stream<Item = Result<Body, Error>> + Send + 'static,
+        Args: serde::de::DeserializeOwned,
+    {
         self.source_handlers.insert(
             vec![method.to_string()],
             Box::new(move |args| {
                 let args = serde_json::Value::Array(args);
-                match serde_json::from_value::<T>(args) {
-                    Ok(args) => f(args),
-                    Err(error) => error_source(Error::deserialize_arguments(error)),
+                match serde_json::from_value::<Args>(args) {
+                    Ok(args) => f(args).boxed(),
+                    Err(error) => error_source(Error::deserialize_arguments(error)).boxed(),
                 }
             }),
         );
     }
 
-    pub fn add_sink<T: serde::de::DeserializeOwned>(
+    pub fn add_sink<Args, Sink_>(
         &mut self,
         method: impl ToString,
-        f: impl Fn(T) -> BoxSink + Send + 'static,
-    ) {
+        f: impl Fn(Args) -> Sink_ + Send + 'static,
+    ) where
+        Args: serde::de::DeserializeOwned,
+        Sink_: Sink<StreamItem, Error = SinkError> + Send + 'static,
+    {
         self.sink_handlers.insert(
             vec![method.to_string()],
             Box::new(move |args| {
                 let args = serde_json::Value::Array(args);
-                match serde_json::from_value::<T>(args) {
-                    Ok(args) => f(args),
-                    Err(error) => error_sink(Error::deserialize_arguments(error)),
+                match serde_json::from_value::<Args>(args) {
+                    Ok(args) => Box::pin(f(args)),
+                    Err(error) => Box::pin(error_sink(Error::deserialize_arguments(error))),
                 }
             }),
         );
@@ -201,6 +195,7 @@ impl Service {
         match self.async_handlers.get(&method) {
             Some(handler) => handler(args),
             None => {
+                tracing::warn!(method = ?method.join(","), "missing async method");
                 futures::future::ready(AsyncResponse::Err(Error::method_not_found(&method))).boxed()
             }
         }
@@ -213,14 +208,20 @@ impl Service {
     ) -> BoxSource {
         match self.source_handlers.get(&method) {
             Some(handler) => handler(args),
-            None => error_source(Error::method_not_found(&method)),
+            None => {
+                tracing::warn!(method = ?method.join("."), "missing source");
+                Box::pin(error_source(Error::method_not_found(&method)))
+            }
         }
     }
 
     pub(super) fn handle_sink(&self, method: Vec<String>, args: Vec<serde_json::Value>) -> BoxSink {
         match self.sink_handlers.get(&method) {
             Some(handler) => handler(args),
-            None => error_sink(Error::method_not_found(&method)),
+            None => {
+                tracing::warn!(method = ?method.join(","), "missing sink");
+                Box::pin(error_sink(Error::method_not_found(&method)))
+            }
         }
     }
 }

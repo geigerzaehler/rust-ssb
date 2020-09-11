@@ -26,7 +26,7 @@ pub enum Request {
         #[cfg_attr(test, proptest(value = "vec![]"))]
         args: Vec<serde_json::Value>,
     },
-    StreamItem {
+    StreamData {
         #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
         number: u32,
         body: Body,
@@ -153,7 +153,7 @@ impl Packet {
                         }
                     }
                 } else {
-                    Request::StreamItem { number, body }
+                    Request::StreamData { number, body }
                 }
             } else {
                 // We are ignoring `header.flags.is_end_or_error`. It should
@@ -222,7 +222,7 @@ impl Packet {
                     is_end_or_error: false,
                     body: Body::json(&RequestBody { name: method, args }),
                 },
-                Request::StreamItem { number, body } => RawPacket {
+                Request::StreamData { number, body } => RawPacket {
                     request_number: number as i32,
                     is_stream: true,
                     is_end_or_error: false,

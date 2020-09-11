@@ -3,7 +3,7 @@ use futures::prelude::*;
 use super::client::Client;
 use super::packet::{Packet, Request, Response};
 use super::packet_stream::PacketStream;
-use super::server::Server;
+use super::server::Service;
 
 #[derive(Debug)]
 pub struct Endpoint {
@@ -14,11 +14,7 @@ pub struct Endpoint {
 }
 
 impl Endpoint {
-    pub fn new<Sink_, TryStream_>(
-        send: Sink_,
-        receive: TryStream_,
-        request_handler: impl Server + 'static,
-    ) -> Self
+    pub fn new<Sink_, TryStream_>(send: Sink_, receive: TryStream_, service: Service) -> Self
     where
         Sink_: Sink<Vec<u8>> + Send + Unpin + 'static,
         Sink_::Error: std::error::Error + Send + Sync + 'static,
@@ -33,8 +29,7 @@ impl Endpoint {
         let server_task = async_std::task::Builder::new()
             .name("rpc endpoint server".to_string())
             .spawn(async move {
-                super::server::run(request_handler, in_requests_receiver, out_responses_sender)
-                    .await
+                super::server::run(service, in_requests_receiver, out_responses_sender).await
             })
             .unwrap();
         let packet_reader_task = async_std::task::Builder::new()
@@ -71,7 +66,7 @@ impl Endpoint {
         TryStream_: TryStream<Ok = Vec<u8>> + Send + Unpin + 'static,
         TryStream_::Error: std::error::Error + Send + Sync + 'static,
     {
-        Self::new(send, receive, super::server::NoServer)
+        Self::new(send, receive, Service::new())
     }
 
     pub fn client(&mut self) -> &mut Client {

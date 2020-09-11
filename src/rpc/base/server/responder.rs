@@ -3,7 +3,7 @@ use futures::prelude::*;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use super::{Error, StreamItem};
+use super::service::{Error, StreamItem};
 use crate::rpc::base::packet::Response;
 
 type BoxResponseSink = Pin<Box<dyn Sink<Response, Error = anyhow::Error> + Send + 'static>>;
@@ -26,6 +26,7 @@ impl Responder {
     }
 
     pub async fn send(&self, msg: Response) -> anyhow::Result<()> {
+        tracing::trace!(?msg, "send response");
         let mut response_sink = self.response_sink.lock().await;
         response_sink.send(msg).await?;
         Ok(())

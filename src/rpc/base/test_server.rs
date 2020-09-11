@@ -2,119 +2,70 @@ use anyhow::Context;
 use futures::prelude::*;
 
 use super::endpoint::Endpoint;
-use super::server::{
-    AsyncResponse, Body, BoxSink, BoxSource, Error, Server, SinkError, StreamItem,
-};
+use super::server::{error_source, AsyncResponse, Body, Error, Service, SinkError, StreamItem};
 
-struct TestRequestHandler;
+fn test_service() -> Service {
+    let mut service = Service::new();
 
-impl Server for TestRequestHandler {
-    fn handle_async(
-        &self,
-        method: Vec<String>,
-        args: Vec<serde_json::Value>,
-    ) -> future::BoxFuture<'static, AsyncResponse> {
-        async move {
-            let mut args = args;
-            match method.as_slice() {
-                [m] => match m.as_ref() {
-                    "asyncEcho" => AsyncResponse::json_ok(&args[0]),
-                    "asyncError" => {
-                        let arg = args.pop().unwrap();
-                        let echo_error = serde_json::from_value::<EchoError>(arg).unwrap();
-                        AsyncResponse::Err {
-                            name: echo_error.name,
-                            message: echo_error.message,
+    service.add_async("asyncEcho", |(x,): (serde_json::Value,)| async move {
+        AsyncResponse::json_ok(&x)
+    });
+
+    service.add_async("asyncError", |(error,): (EchoError,)| async move {
+        AsyncResponse::Err(Error {
+            name: error.name,
+            message: error.message,
+        })
+    });
+
+    service.add_source("sourceEcho", |(values,): (Vec<serde_json::Value>,)| {
+        futures::stream::iter(values).map(|value| Ok(Body::json(&value)))
+    });
+
+    service.add_source(
+        "sourceError",
+        |(_, error): (serde_json::Value, EchoError)| {
+            error_source(Error {
+                name: error.name,
+                message: error.message,
+            })
+        },
+    );
+
+    service.add_source("sourceInifite", |_: Vec<()>| {
+        futures::stream::unfold((), |()| async {
+            async_std::task::sleep(std::time::Duration::from_millis(1)).await;
+            Some((Ok(Body::json(&0)), ()))
+        })
+    });
+
+    service.add_sink("sinkExpect", |(values,): (Vec<serde_json::Value>,)| {
+        let mut collected = Vec::<serde_json::Value>::new();
+        futures::sink::drain()
+            .sink_map_err(|infallible| match infallible {})
+            .with(move |item: StreamItem| {
+                futures::future::ready(match item {
+                    StreamItem::Data(body) => {
+                        let data = body.into_json().unwrap();
+                        let item = serde_json::from_slice::<serde_json::Value>(&data).unwrap();
+                        collected.push(item);
+                        Ok(())
+                    }
+                    StreamItem::Error { .. } => Err(SinkError::Done),
+                    StreamItem::End => {
+                        if collected == values {
+                            Err(SinkError::Done)
+                        } else {
+                            Err(SinkError::Error(Error {
+                                name: "Unexpected error".to_string(),
+                                message: "".to_string(),
+                            }))
                         }
                     }
-                    m => AsyncResponse::method_not_found(&[m.to_string()]),
-                },
-                ms => AsyncResponse::method_not_found(ms),
-            }
-        }
-        .boxed()
-    }
-
-    fn handle_source(&self, method: Vec<String>, args: Vec<serde_json::Value>) -> BoxSource {
-        let mut args = args;
-        match method.as_slice() {
-            [m] => match m.as_ref() {
-                "sourceEcho" => {
-                    let arg = args.pop().unwrap();
-                    let values = serde_json::from_value::<Vec<serde_json::Value>>(arg).unwrap();
-                    futures::stream::iter(values)
-                        .map(|value| Ok(Body::json(&value)))
-                        .boxed()
-                }
-                "sourceInifite" => futures::stream::repeat(0)
-                    .flat_map(|value| {
-                        tracing::debug!("emit infinite source item");
-                        async move {
-                            async_std::task::sleep(std::time::Duration::from_millis(1)).await;
-                            Ok(Body::json(&value))
-                        }
-                        .into_stream()
-                    })
-                    .boxed(),
-                "sourceError" => {
-                    let arg = args.pop().unwrap();
-                    let echo_error = serde_json::from_value::<EchoError>(arg).unwrap();
-                    let arg = args.pop().unwrap();
-                    let values = serde_json::from_value::<Vec<serde_json::Value>>(arg).unwrap();
-                    futures::stream::iter(values)
-                        .map(|value| Ok(Body::json(&value)))
-                        .chain(futures::stream::once(futures::future::ready(Err(Error {
-                            name: echo_error.name,
-                            message: echo_error.message,
-                        }))))
-                        .boxed()
-                }
-                _ => todo!("TestRequestHandler::handle_source"),
-            },
-            _ => todo!("TestRequestHandler::handle_source"),
-        }
-    }
-
-    fn handle_sink(&self, method: Vec<String>, args: Vec<serde_json::Value>) -> BoxSink {
-        let mut args = args;
-        match method.as_slice() {
-            [m] => match m.as_ref() {
-                "sinkExpect" => {
-                    let arg = args.pop().unwrap();
-                    let values = serde_json::from_value::<Vec<serde_json::Value>>(arg).unwrap();
-                    let mut collected = Vec::<serde_json::Value>::new();
-                    Box::pin(
-                        futures::sink::drain()
-                            .sink_map_err(|infallible| match infallible {})
-                            .with(move |item: StreamItem| match item {
-                                StreamItem::Data(body) => {
-                                    let data = body.into_json().unwrap();
-                                    let item =
-                                        serde_json::from_slice::<serde_json::Value>(&data).unwrap();
-                                    collected.push(item);
-                                    futures::future::ready(Ok(()))
-                                }
-                                StreamItem::Error { .. } => {
-                                    futures::future::ready(Err(SinkError::Done))
-                                }
-                                StreamItem::End => {
-                                    if collected == values {
-                                        futures::future::ready(Err(SinkError::Done))
-                                    } else {
-                                        futures::future::ready(Err(SinkError::Error(Error {
-                                            name: "Unexpected error".to_string(),
-                                            message: "".to_string(),
-                                        })))
-                                    }
-                                }
-                            }),
-                    )
-                }
-                _ => todo!("TestRequestHandler::handle_sink"),
-            },
-            _ => todo!("TestRequestHandler::handle_sink"),
-        }
-    }
+                })
+            })
+    });
+    service
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -144,7 +95,7 @@ async fn handle_incoming(stream: async_std::net::TcpStream) -> anyhow::Result<()
     let endpoint = Endpoint::new(
         write.into_sink(),
         crate::utils::read_to_stream(read),
-        TestRequestHandler,
+        test_service(),
     );
     endpoint.join().await.context("Endpoint::join failed")?;
     Ok(())

@@ -80,25 +80,23 @@ impl SinkWorker {
     pub(super) fn start(responder: StreamResponder, sink: BoxSink) -> xtra::Address<Self> {
         Self { responder, sink }.spawn()
     }
-
-    async fn handle(&mut self, message: RequestMessage) {
-        match self.sink.send(message.0).await {
-            Ok(()) => {}
-            Err(SinkError::Error(error)) => {
-                self.responder.err(error).await.unwrap();
-            }
-            Err(SinkError::Done) => {
-                self.responder.end().await.unwrap();
-            }
-        }
-    }
 }
 
 impl xtra::Actor for SinkWorker {}
 
 #[async_trait::async_trait]
 impl xtra::Handler<RequestMessage> for SinkWorker {
-    async fn handle(&mut self, message: RequestMessage, _ctx: &mut Context<Self>) {
-        self.handle(message).await;
+    async fn handle(&mut self, message: RequestMessage, ctx: &mut Context<Self>) {
+        match self.sink.send(message.0).await {
+            Ok(()) => {}
+            Err(SinkError::Error(error)) => {
+                self.responder.err(error).await.unwrap();
+                ctx.stop();
+            }
+            Err(SinkError::Done) => {
+                self.responder.end().await.unwrap();
+                ctx.stop();
+            }
+        }
     }
 }
