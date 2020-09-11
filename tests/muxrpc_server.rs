@@ -15,8 +15,7 @@ async fn server() {
     cmd.env("EXTERNAL_SERVER", port);
     cmd.unwrap();
 
-    match server_task.cancel().await {
-        Some(Err(err)) => panic!("{:?}", err),
-        _ => (),
+    if let Some(Err(err)) = server_task.cancel().await {
+        panic!("{:?}", err);
     }
 }
