@@ -17,6 +17,10 @@ module.exports = {
   },
   rules: {
     "mocha/no-skipped-tests": "off",
+    "no-unused-vars": [
+      "error",
+      { vars: "all", args: "after-used", ignoreRestSiblings: false },
+    ],
   },
   plugins: ["mocha"],
 };

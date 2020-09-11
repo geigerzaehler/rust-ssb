@@ -71,7 +71,7 @@ suite("client", function () {
     const error = { name: "NAME", message: "MSG" };
     const values = [1, 2, 3, 4, 5, 6];
     const errorResult = await collect(
-      this.client.sourceError(values, error)
+      this.client.sourceError(values, error),
     ).catch((e) => e);
 
     assert.deepStrictEqual(errorResult, error);
@@ -103,7 +103,7 @@ suite("client", function () {
       },
       () => {
         console.log("ended error");
-      }
+      },
     );
     pull(pull.values(values), take.sink);
     const outValues = await collect(pull.values(values), endNotify, take);
@@ -165,7 +165,7 @@ suite("client", function () {
 });
 
 function pullInfiniteThrottled() {
-  return function pullInfiniteThrottledSource(end, cb) {
+  return function pullInfiniteThrottledSource(_end, cb) {
     setTimeout(() => cb(null, 0), 1);
   };
 }
@@ -205,7 +205,7 @@ function collect(...source) {
         } else {
           resolve(values);
         }
-      })
+      }),
     );
   });
 }

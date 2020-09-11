@@ -19,7 +19,7 @@ const funcs = lodash.mapValues(api, ({ type, func }, method) => {
         (err) => {
           console.log("ASYNC RESPONSE ERROR", err);
           throw err;
-        }
+        },
       );
     });
   } else {

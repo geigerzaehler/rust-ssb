@@ -90,7 +90,7 @@ const api = {
               name: "not equal",
             });
           }
-        }
+        },
       );
       return sink;
     },
