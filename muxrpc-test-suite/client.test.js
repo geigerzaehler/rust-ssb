@@ -79,8 +79,18 @@ suite("client", function () {
 
   test("sourceInifite abort", async function () {
     const source = this.client.sourceInifite();
-    await new Promise((resolve) => {
-      pull(source, pull.take(10), pull.onEnd(resolve));
+    await new Promise((resolve, reject) => {
+      pull(
+        source,
+        pull.take(10),
+        pull.onEnd((err) => {
+          if (err) {
+            reject(err);
+          } else {
+            resolve(err);
+          }
+        }),
+      );
     });
   });
 
