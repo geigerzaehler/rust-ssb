@@ -5,6 +5,7 @@ fn manifest() {
     let mut mint = goldenfile::Mint::new("tests/golden_files");
     let mut manifest_output = mint.new_goldenfile("ssbc::manifest.stdout").unwrap();
     let mut cmd = assert_cmd::Command::cargo_bin("ssbc").unwrap();
+    cmd.env_remove("RUST_LOG");
     cmd.args(&["--secret-file", "/tmp/rust-ssb-test/secret", "manifest"]);
     let stdout = String::from_utf8(cmd.unwrap().stdout).unwrap();
     let mut stdout_lines = stdout.split('\n').collect::<Vec<_>>();
