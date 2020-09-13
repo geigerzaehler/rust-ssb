@@ -94,9 +94,9 @@ suite("client", function () {
     });
   });
 
-  test("add (no-rust)", async function () {
+  test.only("duplexAdd", async function () {
     const values = [1, 2, 3, 4, 5, 6];
-    const { sink, source } = this.client.add(2);
+    const { sink, source } = this.client.duplexAdd(2);
     const added = values.map((x) => x + 2);
     pull(pull.values(values), sink);
     const addedResult = await collect(source);

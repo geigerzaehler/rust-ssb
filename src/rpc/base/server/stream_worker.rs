@@ -1,7 +1,7 @@
 use futures::prelude::*;
 use xtra::prelude::*;
 
-use super::responder::StreamResponder;
+use super::{responder::StreamResponder, BoxDuplex, BoxDuplexSink};
 use super::{BoxSink, BoxSource, SinkError, StreamItem};
 
 #[derive(Debug)]
@@ -98,5 +98,52 @@ impl xtra::Handler<RequestMessage> for SinkWorker {
                 ctx.stop();
             }
         }
+    }
+}
+
+pub struct DuplexWorker {
+    responder: StreamResponder,
+    sink: BoxDuplexSink,
+}
+
+impl DuplexWorker {
+    pub(super) fn start(responder: StreamResponder, duplex: BoxDuplex) -> xtra::Address<Self> {
+        let (source, sink) = duplex;
+        let addr = Self { responder, sink }.spawn();
+
+        let addr2 = addr.clone();
+        async_std::task::spawn(async move {
+            let mut source = source;
+            loop {
+                let item = source.next().await;
+                let item = StreamItem::from(item);
+                let is_end = item.is_end();
+                let result = addr2.do_send(SourceMessage(item));
+                if result.is_err() || is_end {
+                    break;
+                }
+            }
+        });
+
+        addr
+    }
+}
+
+impl xtra::Actor for DuplexWorker {}
+
+#[async_trait::async_trait]
+impl xtra::Handler<RequestMessage> for DuplexWorker {
+    async fn handle(&mut self, message: RequestMessage, _ctx: &mut Context<Self>) {
+        self.sink
+            .send(message.0)
+            .await
+            .unwrap_or_else(|e| e.into_any())
+    }
+}
+
+#[async_trait::async_trait]
+impl xtra::Handler<SourceMessage> for DuplexWorker {
+    async fn handle(&mut self, message: SourceMessage, _ctx: &mut Context<Self>) {
+        self.responder.send_item(message.0).await.unwrap();
     }
 }

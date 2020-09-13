@@ -56,7 +56,7 @@ const api = {
 
   // Takes a number as an argument and a stream of numbers. Streams the
   // numbers back adding the number argument.
-  add: {
+  duplexAdd: {
     type: "duplex",
     func: (value) => {
       return pull.map((x) => x + value);

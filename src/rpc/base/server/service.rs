@@ -99,6 +99,10 @@ pub(super) type BoxSource = BoxStream<'static, Result<Body, Error>>;
 
 pub(super) type BoxSink = Pin<Box<dyn Sink<StreamItem, Error = SinkError> + Send>>;
 
+pub(super) type BoxDuplexSink = Pin<Box<dyn Sink<StreamItem, Error = never::Never> + Send>>;
+
+pub(super) type BoxDuplex = (BoxSource, BoxDuplexSink);
+
 pub fn error_sink(error: Error) -> impl Sink<StreamItem, Error = SinkError> {
     Box::pin(
         futures::sink::drain::<StreamItem>()
@@ -118,6 +122,7 @@ pub struct Service {
     async_handlers: HashMap<Vec<String>, Handler<BoxFuture<'static, AsyncResponse>>>,
     source_handlers: HashMap<Vec<String>, Handler<BoxSource>>,
     sink_handlers: HashMap<Vec<String>, Handler<BoxSink>>,
+    duplex_handlers: HashMap<Vec<String>, Handler<BoxDuplex>>,
 }
 
 impl Service {
@@ -152,8 +157,8 @@ impl Service {
         method: impl ToString,
         f: impl Fn(Args) -> Source + Send + 'static,
     ) where
-        Source: Stream<Item = Result<Body, Error>> + Send + 'static,
         Args: serde::de::DeserializeOwned,
+        Source: Stream<Item = Result<Body, Error>> + Send + 'static,
     {
         self.source_handlers.insert(
             vec![method.to_string()],
@@ -185,6 +190,66 @@ impl Service {
                 }
             }),
         );
+    }
+
+    pub fn add_duplex<Args, Source, Sink_>(
+        &mut self,
+        method: impl ToString,
+        f: impl Fn(Args) -> (Source, Sink_) + Send + 'static,
+    ) where
+        Args: serde::de::DeserializeOwned,
+        Source: Stream<Item = Result<Body, Error>> + Send + 'static,
+        Sink_: Sink<StreamItem, Error = never::Never> + Send + 'static,
+    {
+        let method2 = method.to_string();
+        self.duplex_handlers.insert(
+            vec![method.to_string()],
+            Box::new(move |args| {
+                let args = serde_json::Value::Array(args);
+                match serde_json::from_value::<Args>(args) {
+                    Ok(args) => {
+                        let (source, sink) = f(args);
+                        (source.boxed(), Box::pin(sink))
+                    }
+                    Err(error) => {
+                        tracing::warn!(method = ?method2, ?error, "failed to deserialize arguments");
+                        let source = error_source(Error::deserialize_arguments(error))
+                        .boxed();
+                        let sink = Box::pin(futures::sink::drain::<StreamItem>().sink_map_err(|infallible| match infallible {}));
+                        (source, sink)
+                    }
+                }
+            }),
+        );
+    }
+
+    pub fn add_service(&mut self, group: impl ToString, service: Self) {
+        let Self {
+            async_handlers,
+            source_handlers,
+            sink_handlers,
+            duplex_handlers,
+        } = service;
+        self.async_handlers
+            .extend(async_handlers.into_iter().map(|(mut k, v)| {
+                k.insert(0, group.to_string());
+                (k, v)
+            }));
+        self.source_handlers
+            .extend(source_handlers.into_iter().map(|(mut k, v)| {
+                k.insert(0, group.to_string());
+                (k, v)
+            }));
+        self.sink_handlers
+            .extend(sink_handlers.into_iter().map(|(mut k, v)| {
+                k.insert(0, group.to_string());
+                (k, v)
+            }));
+        self.duplex_handlers
+            .extend(duplex_handlers.into_iter().map(|(mut k, v)| {
+                k.insert(0, group.to_string());
+                (k, v)
+            }));
     }
 
     pub(super) fn handle_async(
@@ -219,8 +284,25 @@ impl Service {
         match self.sink_handlers.get(&method) {
             Some(handler) => handler(args),
             None => {
-                tracing::warn!(method = ?method.join(","), "missing sink");
+                tracing::warn!(method = ?method.join("."), "missing sink");
                 Box::pin(error_sink(Error::method_not_found(&method)))
+            }
+        }
+    }
+
+    pub(super) fn handle_duplex(
+        &self,
+        method: Vec<String>,
+        args: Vec<serde_json::Value>,
+    ) -> BoxDuplex {
+        match self.duplex_handlers.get(&method) {
+            Some(handler) => handler(args),
+            None => {
+                tracing::warn!(method = ?method.join("."), "missing duplex");
+                let source = error_source(Error::method_not_found(&method)).boxed();
+                let sink =
+                    Box::pin(futures::sink::drain().sink_map_err(|infallible| match infallible {}));
+                (source, sink)
             }
         }
     }

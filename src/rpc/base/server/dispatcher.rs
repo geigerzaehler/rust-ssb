@@ -4,7 +4,7 @@ use xtra::prelude::*;
 
 use super::responder::Responder;
 use super::service::{Error, Service, StreamItem};
-use super::stream_worker::{RequestMessage, SinkWorker, SourceWorker};
+use super::stream_worker::{DuplexWorker, RequestMessage, SinkWorker, SourceWorker};
 use crate::rpc::base::packet::{Request, Response};
 
 pub async fn run<ResponseSink>(
@@ -63,18 +63,21 @@ impl RequestDispatcher {
                     let data = body.into_json().context("Failed to parse stream request")?;
                     let StreamRequest { name, type_, args } =
                         serde_json::from_slice(&data).context("Failed to parse stream request")?;
+                    let responder = self.responder.clone();
+                    tracing::debug!(name = ?name.join("."), ?type_, "stream request");
                     let rpc_stream = match type_ {
                         RequestType::Source => {
                             let source = self.service.handle_source(name, args);
-                            let responder = self.responder.clone();
                             SourceWorker::start(responder.stream(number), source).into_channel()
                         }
                         RequestType::Sink => {
                             let sink = self.service.handle_sink(name, args);
-                            let responder = self.responder.clone();
                             SinkWorker::start(responder.stream(number), sink).into_channel()
                         }
-                        RequestType::Duplex => todo!("server::run RequestType::Duplex"),
+                        RequestType::Duplex => {
+                            let duplex = self.service.handle_duplex(name, args);
+                            DuplexWorker::start(responder.stream(number), duplex).into_channel()
+                        }
                     };
                     self.streams.insert(number, rpc_stream);
                 }
@@ -152,3 +155,6 @@ impl<'de> serde::Deserialize<'de> for RequestType {
         }
     }
 }
+
+#[cfg(test)]
+mod test {}

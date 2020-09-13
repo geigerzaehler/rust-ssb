@@ -10,7 +10,7 @@ mod endpoint;
 mod header;
 mod packet;
 mod packet_stream;
-pub mod server;
+mod server;
 #[cfg(any(test, feature = "test-server"))]
 pub mod test_server;
 
@@ -22,3 +22,6 @@ pub use packet::Body;
 
 #[doc(inline)]
 pub use endpoint::Endpoint;
+
+#[doc(inline)]
+pub use server::{Service, SinkError, StreamItem};

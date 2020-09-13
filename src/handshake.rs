@@ -65,7 +65,7 @@ pub enum Error {
     AcceptSignatureInvalid,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Client {
     endpoint: Endpoint,
     server_identity: crypto::sign::PublicKey,
@@ -93,7 +93,7 @@ impl Client {
     }
 
     pub async fn connect(
-        self,
+        &self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
     ) -> Result<
         (
@@ -112,7 +112,7 @@ impl Client {
         fields(server = base64::encode(&self.server_identity).as_str()))
     ]
     async fn handshake(
-        self,
+        &self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
     ) -> Result<BoxStreamParams, Error> {
         stream
@@ -149,7 +149,7 @@ impl Client {
 }
 
 /// Parameters to execute a handshake from the server side
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Server {
     endpoint: Endpoint,
 }
@@ -176,7 +176,7 @@ impl Server {
     /// Execute the handshake protocol for the server and return encrypted connection
     /// and the clients public identity key
     pub async fn accept(
-        self,
+        &self,
         stream: impl AsyncRead + AsyncWrite + Unpin,
     ) -> Result<
         (
@@ -196,7 +196,7 @@ impl Server {
     /// parameters and the clients public identity key
     #[tracing::instrument(name = "Server::handshake", skip(self, stream))]
     async fn handshake(
-        self,
+        &self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
     ) -> Result<(BoxStreamParams, crypto::sign::PublicKey), Error> {
         let hello_msg = read_hello_bytes(&mut stream).await?;
@@ -289,7 +289,7 @@ fn accept_message_verify(
 }
 
 /// Data that identifies an endpoint (client or server) at the start of the handshake.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Endpoint {
     identity_pk: crypto::sign::PublicKey,
     identity_sk: crypto::sign::SecretKey,

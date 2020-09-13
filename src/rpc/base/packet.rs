@@ -316,12 +316,12 @@ impl Body {
         })
     }
 
-    pub(crate) fn json(value: &impl serde::Serialize) -> Self {
+    pub fn json(value: &impl serde::Serialize) -> Self {
         // TODO error
         Self::Json(serde_json::to_vec(value).unwrap())
     }
 
-    pub(crate) fn into_json(self) -> Result<Vec<u8>, PacketParseError> {
+    pub fn into_json(self) -> Result<Vec<u8>, PacketParseError> {
         match self {
             Body::Blob(_) => Err(PacketParseError::UnexpectedBodyType {
                 actual: BodyType::Binary,

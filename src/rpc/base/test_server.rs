@@ -65,6 +65,36 @@ fn test_service() -> Service {
                 })
             })
     });
+
+    service.add_duplex("duplexAdd", |(summand,): (u64,)| {
+        let (incoming_sink, incoming) = futures::channel::mpsc::unbounded();
+        // This should never panic. `incoming` is only dropped after we stop accepting inputs on `sink`.
+        let sink = incoming_sink.sink_map_err(|err| panic!("{}", err));
+
+        let source = incoming.scan(false, move |closed, item| {
+            if *closed {
+                return futures::future::ready(None);
+            }
+            let result = match item {
+                StreamItem::Data(body) => {
+                    let data = body.into_json().unwrap();
+                    let value = serde_json::from_slice::<u64>(&data).unwrap();
+                    Some(Ok(Body::json(&(value + summand))))
+                }
+                StreamItem::Error(err) => {
+                    *closed = true;
+                    Some(Err(err))
+                }
+                StreamItem::End => {
+                    *closed = true;
+                    None
+                }
+            };
+            futures::future::ready(result)
+        });
+        (source, sink)
+    });
+
     service
 }
 

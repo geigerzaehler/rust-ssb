@@ -724,6 +724,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "never"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c96aba5aa877601bb3f6dd6a63a969e1f82e60646e81e71b14496995e9853c91"
+
+[[package]]
 name = "nix"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1356,6 +1362,7 @@ dependencies = [
  "futures",
  "goldenfile",
  "libsodium-sys",
+ "never",
  "nix",
  "peg",
  "pin-project",
