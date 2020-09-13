@@ -94,7 +94,7 @@ suite("client", function () {
     });
   });
 
-  test.only("duplexAdd", async function () {
+  test("duplexAdd", async function () {
     const values = [1, 2, 3, 4, 5, 6];
     const { sink, source } = this.client.duplexAdd(2);
     const added = values.map((x) => x + 2);

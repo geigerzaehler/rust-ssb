@@ -15,7 +15,7 @@
   },
   "scripts": {
     "test": "mocha",
-    "lint": "prettier --check . && eslint ."
+    "lint": "prettier --check . && eslint . --max-warnings 0"
   },
   "devDependencies": {
     "eslint": "^7.7.0",
