@@ -181,13 +181,10 @@ mod test {
         let mut service = Service::new();
         service.add_source("source", |_: Vec<()>| futures::stream::empty());
 
-        let (request_sender, request_receiver) = futures::channel::mpsc::unbounded();
-        let (response_sender, mut response_receiver) = futures::channel::mpsc::unbounded();
+        let mut test_dispatcher = TestDispatcher::new(service);
 
-        let run_handle = async_std::task::spawn(run(service, request_receiver, response_sender));
-
-        request_sender
-            .unbounded_send(Request::StreamData {
+        test_dispatcher
+            .send(Request::StreamData {
                 number: 1,
                 body: Body::json(&StreamRequest {
                     name: vec!["source".to_string()],
@@ -195,17 +192,14 @@ mod test {
                     args: vec![],
                 }),
             })
-            .unwrap();
+            .await;
 
-        let response = response_receiver.next().await.unwrap();
+        let response = test_dispatcher.recv().await.unwrap();
         assert_eq!(response, Response::StreamEnd { number: 1 });
-        request_sender
-            .unbounded_send(Request::StreamEnd { number: 1 })
-            .unwrap();
-        drop(request_sender);
-        assert!(response_receiver.next().await.is_none());
+        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
 
-        run_handle.await.unwrap();
+        let responses = test_dispatcher.end().await;
+        assert_eq!(responses, vec![]);
     }
 
     #[async_std::test]
@@ -215,11 +209,10 @@ mod test {
         let mut service = Service::new();
         service.add_source("source", |_: Vec<()>| futures::stream::pending());
 
-        let (request_sender, request_receiver) = futures::channel::mpsc::unbounded();
-        let (response_sender, response_receiver) = futures::channel::mpsc::unbounded();
+        let mut test_dispatcher = TestDispatcher::new(service);
 
-        request_sender
-            .unbounded_send(Request::StreamData {
+        test_dispatcher
+            .send(Request::StreamData {
                 number: 1,
                 body: Body::json(&StreamRequest {
                     name: vec!["source".to_string()],
@@ -227,15 +220,9 @@ mod test {
                     args: vec![],
                 }),
             })
-            .unwrap();
-        request_sender
-            .unbounded_send(Request::StreamEnd { number: 1 })
-            .unwrap();
-        drop(request_sender);
-        run(service, request_receiver, response_sender)
-            .await
-            .unwrap();
-        let responses = response_receiver.collect::<Vec<_>>().await;
+            .await;
+        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+        let responses = test_dispatcher.end().await;
         assert_eq!(responses, vec![Response::StreamEnd { number: 1 }]);
     }
 
@@ -246,24 +233,17 @@ mod test {
         let mut service = Service::new();
         service.add_source("source", |_: Vec<()>| futures::stream::pending());
 
-        let (request_sender, request_receiver) = futures::channel::mpsc::unbounded();
-        let (response_sender, response_receiver) = futures::channel::mpsc::unbounded();
+        let mut test_dispatcher = TestDispatcher::new(service);
 
-        request_sender
-            .unbounded_send(Request::StreamEnd { number: 1 })
-            .unwrap();
-        request_sender
-            .unbounded_send(Request::StreamError {
+        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+        test_dispatcher
+            .send(Request::StreamError {
                 number: 2,
                 name: "".to_string(),
                 message: "".to_string(),
             })
-            .unwrap();
-        drop(request_sender);
-        run(service, request_receiver, response_sender)
-            .await
-            .unwrap();
-        let responses = response_receiver.collect::<Vec<_>>().await;
+            .await;
+        let responses = test_dispatcher.end().await;
         assert_eq!(
             responses,
             vec![
@@ -279,5 +259,82 @@ mod test {
                 }
             ]
         );
+    }
+
+    #[async_std::test]
+    async fn data_request_to_source() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let mut service = Service::new();
+        service.add_source("source", |_: Vec<()>| futures::stream::pending());
+
+        let mut test_dispatcher = TestDispatcher::new(service);
+
+        test_dispatcher
+            .send(Request::StreamData {
+                number: 1,
+                body: Body::json(&StreamRequest {
+                    name: vec!["source".to_string()],
+                    type_: RequestType::Source,
+                    args: vec![],
+                }),
+            })
+            .await;
+        test_dispatcher
+            .send(Request::StreamData {
+                number: 1,
+                body: Body::String("".to_string()),
+            })
+            .await;
+        let responses = test_dispatcher.end().await;
+        assert_eq!(
+            responses,
+            vec![Response::StreamError {
+                number: 1,
+                name: "SENT_DATA_TO_SOURCE".to_string(),
+                message: "Cannot send data to a \"source\" stream".to_string()
+            },]
+        );
+    }
+
+    struct TestDispatcher {
+        request_sender: futures::channel::mpsc::UnboundedSender<Request>,
+        response_receiver: futures::channel::mpsc::UnboundedReceiver<Response>,
+        run_handle: async_std::task::JoinHandle<Result<(), anyhow::Error>>,
+    }
+
+    impl TestDispatcher {
+        fn new(service: Service) -> Self {
+            let (request_sender, request_receiver) = futures::channel::mpsc::unbounded();
+            let (response_sender, response_receiver) = futures::channel::mpsc::unbounded();
+
+            let run_handle =
+                async_std::task::spawn(run(service, request_receiver, response_sender));
+
+            Self {
+                request_sender,
+                response_receiver,
+                run_handle,
+            }
+        }
+
+        async fn send(&mut self, request: Request) {
+            self.request_sender.send(request).await.unwrap();
+        }
+
+        async fn recv(&mut self) -> Option<Response> {
+            self.response_receiver.next().await
+        }
+
+        async fn end(self) -> Vec<Response> {
+            let TestDispatcher {
+                request_sender,
+                response_receiver,
+                run_handle,
+            } = self;
+            drop(request_sender);
+            run_handle.await.unwrap();
+            response_receiver.collect::<Vec<_>>().await
+        }
     }
 }

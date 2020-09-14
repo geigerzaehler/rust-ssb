@@ -2,7 +2,7 @@ use futures::prelude::*;
 use xtra::prelude::*;
 
 use super::{responder::StreamResponder, BoxDuplex, BoxDuplexSink};
-use super::{BoxSink, BoxSource, SinkError, StreamItem};
+use super::{BoxSink, BoxSource, Error, SinkError, StreamItem};
 
 #[derive(Debug)]
 pub struct RequestMessage(pub StreamItem);
@@ -56,7 +56,18 @@ impl xtra::Actor for SourceWorker {}
 impl xtra::Handler<RequestMessage> for SourceWorker {
     async fn handle(&mut self, message: RequestMessage, ctx: &mut Context<Self>) {
         match message.0 {
-            StreamItem::Data(_) => todo!("Invalid data"),
+            StreamItem::Data(_) => {
+                if !self.source_ended {
+                    self.responder
+                        .err(Error {
+                            name: "SENT_DATA_TO_SOURCE".to_string(),
+                            message: "Cannot send data to a \"source\" stream".to_string(),
+                        })
+                        .await
+                        .unwrap();
+                }
+                ctx.stop();
+            }
             StreamItem::Error(error) => {
                 if !self.source_ended {
                     self.responder.err(error).await.unwrap();
