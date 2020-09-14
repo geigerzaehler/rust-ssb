@@ -1,35 +1,81 @@
-use futures::lock::Mutex;
 use futures::prelude::*;
-use std::pin::Pin;
-use std::sync::Arc;
 
 use super::service::{Error, StreamItem};
 use crate::rpc::base::packet::Response;
 
-type BoxResponseSink = Pin<Box<dyn Sink<Response, Error = anyhow::Error> + Send + 'static>>;
-
-#[derive(Debug, Clone)]
-pub struct Responder {
-    response_sink: Arc<Mutex<BoxResponseSink>>,
+#[derive(Debug)]
+struct ResponseMessage {
+    response: Response,
+    result_sender: Option<futures::channel::oneshot::Sender<Result<(), anyhow::Error>>>,
 }
 
-impl Responder {
-    pub fn new<ResponseSink>(response_sink: ResponseSink) -> Self
+#[derive(Debug, thiserror::Error)]
+#[error("Response worker stopped")]
+pub struct StoppedError;
+
+#[derive(Debug)]
+pub struct ResponseWorker {
+    worker: async_std::task::JoinHandle<()>,
+    response_sender: futures::channel::mpsc::UnboundedSender<ResponseMessage>,
+}
+
+impl ResponseWorker {
+    pub fn start<ResponseSink>(response_sink: ResponseSink) -> Self
     where
         ResponseSink: Sink<Response> + Send + Unpin + Clone + 'static,
         ResponseSink::Error: std::error::Error + Send + Sync + 'static,
     {
-        let response_sink = response_sink.sink_map_err(anyhow::Error::from);
+        let mut response_sink = response_sink;
+        let (response_sender, mut response_receiver) = futures::channel::mpsc::unbounded();
+        let worker = async_std::task::spawn(async move {
+            while let Some(msg) = response_receiver.next().await {
+                let ResponseMessage {
+                    response,
+                    result_sender,
+                } = msg;
+                let response_result = response_sink.send(response).await;
+                if let Some(result_sender) = result_sender {
+                    let _ = result_sender.send(response_result.map_err(anyhow::Error::from));
+                }
+            }
+        });
         Self {
-            response_sink: Arc::new(Mutex::new(Box::pin(response_sink))),
+            worker,
+            response_sender,
         }
     }
 
-    pub async fn send(&self, msg: Response) -> anyhow::Result<()> {
-        tracing::trace!(?msg, "send response");
-        let mut response_sink = self.response_sink.lock().await;
-        response_sink.send(msg).await?;
-        Ok(())
+    pub fn responder(&self) -> Responder {
+        Responder {
+            response_sender: self.response_sender.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Responder {
+    response_sender: futures::channel::mpsc::UnboundedSender<ResponseMessage>,
+}
+
+impl Responder {
+    pub async fn send(&mut self, response: Response) -> Result<(), anyhow::Error> {
+        let (result_sender, result_receiver) = futures::channel::oneshot::channel();
+        self.response_sender.start_send(ResponseMessage {
+            response,
+            result_sender: Some(result_sender),
+        })?;
+        result_receiver
+            .await
+            .unwrap_or_else(|err| Err(anyhow::Error::from(err)))
+    }
+
+    pub fn start_send(&mut self, response: Response) -> Result<(), StoppedError> {
+        self.response_sender
+            .start_send(ResponseMessage {
+                response,
+                result_sender: None,
+            })
+            .map_err(|_| StoppedError)
     }
 
     pub fn stream(&self, id: u32) -> StreamResponder {

@@ -2,7 +2,7 @@ use anyhow::Context;
 use futures::prelude::*;
 use xtra::prelude::*;
 
-use super::responder::Responder;
+use super::responder::{Responder, ResponseWorker};
 use super::service::{Error, Service, StreamItem};
 use super::stream_worker::{DuplexWorker, RequestMessage, SinkWorker, SourceWorker};
 use crate::rpc::base::packet::{Request, Response};
@@ -17,15 +17,16 @@ where
     ResponseSink::Error: std::error::Error + Send + Sync + 'static,
 {
     let mut request_stream = request_stream;
-    let responder = Responder::new(response_sink);
+    let response_worker = ResponseWorker::start(response_sink);
     let mut request_dispatcher = RequestDispatcher {
         service,
-        responder,
+        responder: response_worker.responder(),
         streams: std::collections::HashMap::new(),
     };
     while let Some(request) = request_stream.next().await {
         request_dispatcher.handle_request(request)?;
     }
+    // TODO stop response worker
     Ok(())
 }
 
@@ -45,7 +46,7 @@ impl RequestDispatcher {
                 args,
             } => {
                 let response_fut = self.service.handle_async(method, args);
-                let responder = self.responder.clone();
+                let mut responder = self.responder.clone();
                 async_std::task::spawn(async move {
                     let response = response_fut.await;
                     responder
@@ -86,7 +87,13 @@ impl RequestDispatcher {
                 if let Some(stream) = self.streams.remove(&number) {
                     stream.do_send(RequestMessage(StreamItem::End)).unwrap();
                 } else {
-                    todo!("server::run Request::StreamEnd no stream found to end")
+                    self.responder
+                        .start_send(Response::StreamError {
+                            number,
+                            name: "STREAM_DOES_NOT_EXIST".to_string(),
+                            message: format!("Stream with ID {:?} does not exist", number),
+                        })
+                        .unwrap();
                 }
             }
             Request::StreamError {
@@ -99,7 +106,13 @@ impl RequestDispatcher {
                         .do_send(RequestMessage(StreamItem::Error(Error { name, message })))
                         .unwrap();
                 } else {
-                    todo!("server::run Request::StreamError")
+                    self.responder
+                        .start_send(Response::StreamError {
+                            number,
+                            name: "STREAM_DOES_NOT_EXIST".to_string(),
+                            message: format!("Stream with ID {:?} does not exist", number),
+                        })
+                        .unwrap();
                 }
             }
         }
@@ -224,5 +237,47 @@ mod test {
             .unwrap();
         let responses = response_receiver.collect::<Vec<_>>().await;
         assert_eq!(responses, vec![Response::StreamEnd { number: 1 }]);
+    }
+
+    #[async_std::test]
+    async fn end_msg_after_end() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let mut service = Service::new();
+        service.add_source("source", |_: Vec<()>| futures::stream::pending());
+
+        let (request_sender, request_receiver) = futures::channel::mpsc::unbounded();
+        let (response_sender, response_receiver) = futures::channel::mpsc::unbounded();
+
+        request_sender
+            .unbounded_send(Request::StreamEnd { number: 1 })
+            .unwrap();
+        request_sender
+            .unbounded_send(Request::StreamError {
+                number: 2,
+                name: "".to_string(),
+                message: "".to_string(),
+            })
+            .unwrap();
+        drop(request_sender);
+        run(service, request_receiver, response_sender)
+            .await
+            .unwrap();
+        let responses = response_receiver.collect::<Vec<_>>().await;
+        assert_eq!(
+            responses,
+            vec![
+                Response::StreamError {
+                    number: 1,
+                    name: "STREAM_DOES_NOT_EXIST".to_string(),
+                    message: "Stream with ID 1 does not exist".to_string()
+                },
+                Response::StreamError {
+                    number: 2,
+                    name: "STREAM_DOES_NOT_EXIST".to_string(),
+                    message: "Stream with ID 2 does not exist".to_string()
+                }
+            ]
+        );
     }
 }
