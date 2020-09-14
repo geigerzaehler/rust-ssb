@@ -13,13 +13,13 @@ pub struct Error {
 }
 
 impl Error {
-    pub fn method_not_found(method: &[String]) -> Self {
+    pub(super) fn method_not_found(method: &[String]) -> Self {
         let name = "METHOD_NOT_FOUND".to_string();
         let message = format!("Method \"{}\" not found", method.join("."));
         Self { name, message }
     }
 
-    pub fn deserialize_arguments(error: serde_json::Error) -> Self {
+    pub(super) fn deserialize_arguments(error: serde_json::Error) -> Self {
         Self {
             name: "ArgumentError".to_string(),
             message: format!("Failed to deserialize arguments {}", error),
@@ -58,7 +58,7 @@ pub enum StreamItem {
 }
 
 impl StreamItem {
-    pub fn into_response(self, number: u32) -> Response {
+    pub(super) fn into_response(self, number: u32) -> Response {
         match self {
             StreamItem::Data(body) => Response::StreamData { number, body },
             StreamItem::Error(Error { name, message }) => Response::StreamError {
@@ -70,7 +70,7 @@ impl StreamItem {
         }
     }
 
-    pub fn is_end(&self) -> bool {
+    pub(super) fn is_end(&self) -> bool {
         match self {
             StreamItem::Data(_) => false,
             StreamItem::Error(_) => true,
