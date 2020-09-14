@@ -1,3 +1,6 @@
+#[cfg(test)]
+use proptest::strategy::Strategy as _;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Header {
@@ -5,6 +8,10 @@ pub struct Header {
     pub body_type: BodyType,
     #[cfg_attr(test, proptest(strategy = "1u32..=u32::MAX"))]
     pub body_len: u32,
+    #[cfg_attr(
+        test,
+        proptest(strategy = "(1i32..=i32::MAX).prop_union(i32::MIN..=-1i32)")
+    )]
     pub request_number: i32,
 }
 
@@ -30,6 +37,8 @@ pub enum BodyType {
 pub enum HeaderParseError {
     #[error("Invalid body type {value}")]
     InvalidBodyType { value: u8 },
+    #[error("Request number is zero")]
+    RequestNumberZero,
 }
 
 impl BodyType {
@@ -66,6 +75,10 @@ impl Header {
         let body_len = bytes.get_u32();
         let request_number = bytes.get_i32();
         debug_assert!(!bytes.has_remaining());
+
+        if request_number == 0 {
+            return Err(HeaderParseError::RequestNumberZero);
+        }
 
         Ok(Some(Self {
             flags: HeaderFlags {
@@ -130,5 +143,12 @@ mod test {
         let header_data = [0u8; Header::SIZE];
         let opt_header = Header::parse(header_data).unwrap();
         assert_eq!(opt_header, None);
+    }
+
+    #[proptest]
+    fn request_number_zero(mut header: Header) {
+        header.request_number = 0;
+        let err = Header::parse(header.build()).unwrap_err();
+        prop_assert_eq!(err, HeaderParseError::RequestNumberZero);
     }
 }
