@@ -157,4 +157,72 @@ impl<'de> serde::Deserialize<'de> for RequestType {
 }
 
 #[cfg(test)]
-mod test {}
+mod test {
+    use super::*;
+    use crate::rpc::base::packet::Body;
+
+    #[async_std::test]
+    async fn source_end_server() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let mut service = Service::new();
+        service.add_source("source", |_: Vec<()>| futures::stream::empty());
+
+        let (request_sender, request_receiver) = futures::channel::mpsc::unbounded();
+        let (response_sender, mut response_receiver) = futures::channel::mpsc::unbounded();
+
+        let run_handle = async_std::task::spawn(run(service, request_receiver, response_sender));
+
+        request_sender
+            .unbounded_send(Request::StreamData {
+                number: 1,
+                body: Body::json(&StreamRequest {
+                    name: vec!["source".to_string()],
+                    type_: RequestType::Source,
+                    args: vec![],
+                }),
+            })
+            .unwrap();
+
+        let response = response_receiver.next().await.unwrap();
+        assert_eq!(response, Response::StreamEnd { number: 1 });
+        request_sender
+            .unbounded_send(Request::StreamEnd { number: 1 })
+            .unwrap();
+        drop(request_sender);
+        assert!(response_receiver.next().await.is_none());
+
+        run_handle.await.unwrap();
+    }
+
+    #[async_std::test]
+    async fn source_end_client() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let mut service = Service::new();
+        service.add_source("source", |_: Vec<()>| futures::stream::pending());
+
+        let (request_sender, request_receiver) = futures::channel::mpsc::unbounded();
+        let (response_sender, response_receiver) = futures::channel::mpsc::unbounded();
+
+        request_sender
+            .unbounded_send(Request::StreamData {
+                number: 1,
+                body: Body::json(&StreamRequest {
+                    name: vec!["source".to_string()],
+                    type_: RequestType::Source,
+                    args: vec![],
+                }),
+            })
+            .unwrap();
+        request_sender
+            .unbounded_send(Request::StreamEnd { number: 1 })
+            .unwrap();
+        drop(request_sender);
+        run(service, request_receiver, response_sender)
+            .await
+            .unwrap();
+        let responses = response_receiver.collect::<Vec<_>>().await;
+        assert_eq!(responses, vec![Response::StreamEnd { number: 1 }]);
+    }
+}

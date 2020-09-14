@@ -21,11 +21,16 @@ impl xtra::Message for SourceMessage {
 #[derive(Debug)]
 pub struct SourceWorker {
     responder: StreamResponder,
+    source_ended: bool,
 }
 
 impl SourceWorker {
     pub(super) fn start(responder: StreamResponder, source: BoxSource) -> xtra::Address<Self> {
-        let addr = Self { responder }.spawn();
+        let addr = Self {
+            responder,
+            source_ended: false,
+        }
+        .spawn();
 
         let addr2 = addr.clone();
         async_std::task::spawn(async move {
@@ -53,11 +58,15 @@ impl xtra::Handler<RequestMessage> for SourceWorker {
         match message.0 {
             StreamItem::Data(_) => todo!("Invalid data"),
             StreamItem::Error(error) => {
-                self.responder.err(error).await.unwrap();
+                if !self.source_ended {
+                    self.responder.err(error).await.unwrap();
+                }
                 ctx.stop();
             }
             StreamItem::End => {
-                self.responder.end().await.unwrap();
+                if !self.source_ended {
+                    self.responder.end().await.unwrap();
+                }
                 ctx.stop();
             }
         }
@@ -67,6 +76,9 @@ impl xtra::Handler<RequestMessage> for SourceWorker {
 #[async_trait::async_trait]
 impl xtra::Handler<SourceMessage> for SourceWorker {
     async fn handle(&mut self, message: SourceMessage, _ctx: &mut Context<Self>) {
+        if message.0.is_end() {
+            self.source_ended = true;
+        }
         self.responder.send_item(message.0).await.unwrap();
     }
 }
