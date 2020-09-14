@@ -18,39 +18,46 @@ impl xtra::Message for SourceMessage {
     type Result = ();
 }
 
-#[derive(Debug)]
 pub struct SourceWorker {
     responder: StreamResponder,
+    source_reader: Option<async_std::task::JoinHandle<()>>,
+    source: Option<BoxSource>,
     source_ended: bool,
 }
 
 impl SourceWorker {
     pub(super) fn start(responder: StreamResponder, source: BoxSource) -> xtra::Address<Self> {
-        let addr = Self {
+        Self {
             responder,
+            source: Some(source),
+            source_reader: None,
             source_ended: false,
         }
-        .spawn();
+        .spawn()
+    }
+}
 
-        let addr2 = addr.clone();
-        async_std::task::spawn(async move {
-            let mut source = source;
+impl xtra::Actor for SourceWorker {
+    fn started(&mut self, ctx: &mut Context<Self>) {
+        let addr = ctx.address().unwrap();
+        let mut source = self.source.take().unwrap();
+        self.source_reader = Some(async_std::task::spawn(async move {
             loop {
                 let item = source.next().await;
                 let item = StreamItem::from(item);
                 let is_end = item.is_end();
-                let result = addr2.do_send(SourceMessage(item));
+                let result = addr.do_send(SourceMessage(item));
                 if result.is_err() || is_end {
                     break;
                 }
             }
-        });
+        }));
+    }
 
-        addr
+    fn stopped(&mut self, _ctx: &mut Context<Self>) {
+        async_std::task::spawn(self.source_reader.take().unwrap().cancel());
     }
 }
-
-impl xtra::Actor for SourceWorker {}
 
 #[async_trait::async_trait]
 impl xtra::Handler<RequestMessage> for SourceWorker {
@@ -97,11 +104,17 @@ impl xtra::Handler<SourceMessage> for SourceWorker {
 pub struct SinkWorker {
     responder: StreamResponder,
     sink: BoxSink,
+    sent_end: bool,
 }
 
 impl SinkWorker {
     pub(super) fn start(responder: StreamResponder, sink: BoxSink) -> xtra::Address<Self> {
-        Self { responder, sink }.spawn()
+        Self {
+            responder,
+            sink,
+            sent_end: false,
+        }
+        .spawn()
     }
 }
 
@@ -109,16 +122,28 @@ impl xtra::Actor for SinkWorker {}
 
 #[async_trait::async_trait]
 impl xtra::Handler<RequestMessage> for SinkWorker {
-    async fn handle(&mut self, message: RequestMessage, ctx: &mut Context<Self>) {
-        match self.sink.send(message.0).await {
-            Ok(()) => {}
+    async fn handle(&mut self, message: RequestMessage, _ctx: &mut Context<Self>) {
+        if (self.sent_end) {
+            return;
+        }
+
+        let is_end = message.0.is_end();
+        let result = self.sink.send(message.0).await;
+
+        match result {
+            Ok(()) => {
+                if is_end {
+                    self.sent_end = true;
+                    self.responder.end().await.unwrap();
+                }
+            }
             Err(SinkError::Error(error)) => {
+                self.sent_end = true;
                 self.responder.err(error).await.unwrap();
-                ctx.stop();
             }
             Err(SinkError::Done) => {
+                self.sent_end = true;
                 self.responder.end().await.unwrap();
-                ctx.stop();
             }
         }
     }
@@ -160,7 +185,7 @@ impl xtra::Handler<RequestMessage> for DuplexWorker {
         self.sink
             .send(message.0)
             .await
-            .unwrap_or_else(|e| e.into_any())
+            .unwrap_or_else(|e| e.into_any());
     }
 }
 

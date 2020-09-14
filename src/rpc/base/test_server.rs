@@ -66,6 +66,32 @@ fn test_service() -> Service {
             })
     });
 
+    service.add_sink("sinkAbortError", |(n, error): (u32, EchoError)| {
+        let mut remaining_items = n;
+        futures::sink::drain()
+            .sink_map_err(|infallible| match infallible {})
+            .with(move |item: StreamItem| {
+                futures::future::ready(match item {
+                    StreamItem::Data(_) => {
+                        remaining_items -= 1;
+                        if remaining_items == 0 {
+                            Err(SinkError::Error(Error {
+                                name: error.name.clone(),
+                                message: error.message.clone(),
+                            }))
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    StreamItem::Error { .. } => Err(SinkError::Done),
+                    _ => Err(SinkError::Error(Error {
+                        name: "Unexpected end or error".to_string(),
+                        message: "".to_string(),
+                    })),
+                })
+            })
+    });
+
     service.add_duplex("duplexAdd", |(summand,): (u64,)| {
         let (incoming_sink, incoming) = futures::channel::mpsc::unbounded();
         // This should never panic. `incoming` is only dropped after we stop accepting inputs on `sink`.

@@ -169,7 +169,7 @@ suite("client", function () {
     await endNotify.ended;
   });
 
-  test("sinkAbortError (no-rust)", async function () {
+  test("sinkAbortError", async function () {
     const error = { name: "NAME", message: "MSG" };
     const errorResult = await new Promise((resolve, reject) => {
       const drainAbortError = this.client.sinkAbortError(4, error, (err) => {

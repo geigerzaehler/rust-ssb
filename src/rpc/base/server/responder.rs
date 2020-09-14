@@ -33,6 +33,7 @@ impl ResponseWorker {
                     response,
                     result_sender,
                 } = msg;
+                tracing::trace!(?response, "send response");
                 let response_result = response_sink.send(response).await;
                 if let Some(result_sender) = result_sender {
                     let _ = result_sender.send(response_result.map_err(anyhow::Error::from));

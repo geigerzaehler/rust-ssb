@@ -228,6 +228,75 @@ mod test {
     }
 
     #[async_std::test]
+    async fn sink_end_client() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let mut service = Service::new();
+        service.add_sink("sink", |_: Vec<()>| {
+            futures::sink::drain().sink_map_err(|infallible| match infallible {})
+        });
+
+        let mut test_dispatcher = TestDispatcher::new(service);
+
+        test_dispatcher
+            .send(Request::StreamData {
+                number: 1,
+                body: Body::json(&StreamRequest {
+                    name: vec!["sink".to_string()],
+                    type_: RequestType::Sink,
+                    args: vec![],
+                }),
+            })
+            .await;
+        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+        let responses = test_dispatcher.end().await;
+        assert_eq!(responses, vec![Response::StreamEnd { number: 1 }]);
+    }
+
+    #[async_std::test]
+    async fn sink_end_server() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let mut service = Service::new();
+        service.add_sink("sink", |_: Vec<()>| {
+            futures::sink::drain::<StreamItem>()
+                .sink_map_err(|infallible| match infallible {})
+                .with(|_| futures::future::ready(Err(super::super::service::SinkError::Done)))
+        });
+
+        let mut test_dispatcher = TestDispatcher::new(service);
+
+        test_dispatcher
+            .send(Request::StreamData {
+                number: 1,
+                body: Body::json(&StreamRequest {
+                    name: vec!["sink".to_string()],
+                    type_: RequestType::Sink,
+                    args: vec![],
+                }),
+            })
+            .await;
+        test_dispatcher
+            .send(Request::StreamData {
+                number: 1,
+                body: Body::String("".to_string()),
+            })
+            .await;
+        test_dispatcher
+            .send(Request::StreamData {
+                number: 1,
+                body: Body::String("".to_string()),
+            })
+            .await;
+        let response = test_dispatcher.recv().await.unwrap();
+        assert_eq!(response, Response::StreamEnd { number: 1 });
+        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+
+        let responses = test_dispatcher.end().await;
+        assert_eq!(responses, vec![]);
+    }
+
+    #[async_std::test]
     async fn end_msg_after_end() {
         let _ = tracing_subscriber::fmt::try_init();
 
