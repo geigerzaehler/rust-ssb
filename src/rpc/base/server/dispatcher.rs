@@ -26,7 +26,8 @@ where
     while let Some(request) = request_stream.next().await {
         request_dispatcher.handle_request(request)?;
     }
-    // TODO stop response worker
+    drop(request_dispatcher);
+    response_worker.join().await;
     Ok(())
 }
 
@@ -293,7 +294,7 @@ mod test {
                 number: 1,
                 name: "SENT_DATA_TO_SOURCE".to_string(),
                 message: "Cannot send data to a \"source\" stream".to_string()
-            },]
+            }]
         );
     }
 

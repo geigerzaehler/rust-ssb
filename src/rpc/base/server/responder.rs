@@ -45,6 +45,15 @@ impl ResponseWorker {
         }
     }
 
+    pub async fn join(self) {
+        let ResponseWorker {
+            worker,
+            response_sender,
+        } = self;
+        drop(response_sender);
+        worker.await;
+    }
+
     pub fn responder(&self) -> Responder {
         Responder {
             response_sender: self.response_sender.clone(),
