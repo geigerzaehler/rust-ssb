@@ -228,6 +228,34 @@ mod test {
     }
 
     #[async_std::test]
+    async fn source_drop_on_end() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let mut service = Service::new();
+        let (source_sender, source) = futures::channel::mpsc::unbounded();
+        let source_cell = std::cell::RefCell::new(Some(source));
+        service.add_source("source", move |_: Vec<()>| {
+            source_cell.borrow_mut().take().unwrap()
+        });
+
+        let mut test_dispatcher = TestDispatcher::new(service);
+
+        test_dispatcher
+            .send(Request::StreamData {
+                number: 1,
+                body: Body::json(&StreamRequest {
+                    name: vec!["source".to_string()],
+                    type_: RequestType::Source,
+                    args: vec![],
+                }),
+            })
+            .await;
+        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+        test_dispatcher.end().await;
+        assert!(source_sender.is_closed());
+    }
+
+    #[async_std::test]
     async fn sink_end_client() {
         let _ = tracing_subscriber::fmt::try_init();
 
