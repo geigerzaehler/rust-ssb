@@ -1,9 +1,12 @@
 use futures::prelude::*;
 
 mod read_buffer;
-
 #[doc(inline)]
 pub use read_buffer::ReadBuffer;
+
+mod oneshot;
+#[doc(inline)]
+pub use oneshot::{OneshotClosed, OneshotSink, OneshotStream};
 
 /// Convert [AsyncRead] into a [Stream]. Polling the resulting stream will poll
 /// the reader for 4096 bytes and return a [Vec] of all the bytes that were read.

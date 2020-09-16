@@ -3,10 +3,11 @@ use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-/// Buffer for a fixed number of bytes to be read. The buffer can be filled with
-/// an [AsyncRead] using [ReadBuffer::poll_read] and a [bytes::Buf] using
-/// [ReadBuffer::put]. Once the expected number of bytes are read the buffer data
-/// is returned and the buffer is reset.
+/// Buffer for a fixed number of bytes to be read.
+///
+/// The buffer can be filled with an [AsyncRead] using [ReadBuffer::poll_read] and a [bytes::Buf]
+/// using [ReadBuffer::put]. Once the expected number of bytes are read the buffer data is returned
+/// and the buffer is reset.
 #[derive(Debug)]
 pub struct ReadBuffer {
     data: Vec<u8>,

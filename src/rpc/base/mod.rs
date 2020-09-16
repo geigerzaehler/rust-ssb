@@ -11,6 +11,7 @@ mod header;
 mod packet;
 mod packet_stream;
 mod server;
+mod stream_request;
 #[cfg(any(test, feature = "test-server"))]
 pub mod test_server;
 

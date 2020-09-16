@@ -2,7 +2,7 @@ use futures::future::BoxFuture;
 use futures::prelude::*;
 use futures::stream::BoxStream;
 use std::collections::HashMap;
-use std::pin::Pin;
+use std::{pin::Pin, task::Poll};
 
 use crate::rpc::base::packet::{Body, Response};
 
@@ -95,34 +95,18 @@ pub enum SinkError {
     Error(Error),
 }
 
-pub(super) type BoxSource = BoxStream<'static, Result<Body, Error>>;
+pub(super) type BoxEndpointStream = BoxStream<'static, Result<Body, Error>>;
 
-pub(super) type BoxSink = Pin<Box<dyn Sink<StreamItem, Error = SinkError> + Send>>;
+pub(super) type BoxEndpointSink = Pin<Box<dyn Sink<StreamItem, Error = ()> + Send>>;
 
-pub(super) type BoxDuplexSink = Pin<Box<dyn Sink<StreamItem, Error = never::Never> + Send>>;
-
-pub(super) type BoxDuplex = (BoxSource, BoxDuplexSink);
-
-pub fn error_sink(error: Error) -> impl Sink<StreamItem, Error = SinkError> {
-    Box::pin(
-        futures::sink::drain::<StreamItem>()
-            .sink_map_err(|infallible| match infallible {})
-            .with(move |_| futures::future::ready(Err(SinkError::Error(error.clone())))),
-    )
-}
-
-pub fn error_source(error: Error) -> impl Stream<Item = Result<Body, Error>> + Send + 'static {
-    futures::stream::once(futures::future::ready(Err(error)))
-}
+pub(super) type BoxEndpoint = (BoxEndpointStream, BoxEndpointSink);
 
 type Handler<T> = Box<dyn Fn(Vec<serde_json::Value>) -> T + Send + 'static>;
 
 #[derive(Default)]
 pub struct Service {
     async_handlers: HashMap<Vec<String>, Handler<BoxFuture<'static, AsyncResponse>>>,
-    source_handlers: HashMap<Vec<String>, Handler<BoxSource>>,
-    sink_handlers: HashMap<Vec<String>, Handler<BoxSink>>,
-    duplex_handlers: HashMap<Vec<String>, Handler<BoxDuplex>>,
+    stream_handlers: HashMap<Vec<String>, Handler<BoxEndpoint>>,
 }
 
 impl Service {
@@ -160,13 +144,13 @@ impl Service {
         Args: serde::de::DeserializeOwned,
         Source: Stream<Item = Result<Body, Error>> + Send + 'static,
     {
-        self.source_handlers.insert(
+        self.stream_handlers.insert(
             vec![method.to_string()],
             Box::new(move |args| {
                 let args = serde_json::Value::Array(args);
                 match serde_json::from_value::<Args>(args) {
-                    Ok(args) => f(args).boxed(),
-                    Err(error) => error_source(Error::deserialize_arguments(error)).boxed(),
+                    Ok(args) => stream_to_endpoint(f(args)),
+                    Err(error) => error_endpoint(Error::deserialize_arguments(error)),
                 }
             }),
         );
@@ -180,13 +164,13 @@ impl Service {
         Args: serde::de::DeserializeOwned,
         Sink_: Sink<StreamItem, Error = SinkError> + Send + 'static,
     {
-        self.sink_handlers.insert(
+        self.stream_handlers.insert(
             vec![method.to_string()],
             Box::new(move |args| {
                 let args = serde_json::Value::Array(args);
                 match serde_json::from_value::<Args>(args) {
-                    Ok(args) => Box::pin(f(args)),
-                    Err(error) => Box::pin(error_sink(Error::deserialize_arguments(error))),
+                    Ok(args) => sink_to_endpoint(f(args)),
+                    Err(error) => error_endpoint(Error::deserialize_arguments(error)),
                 }
             }),
         );
@@ -199,10 +183,10 @@ impl Service {
     ) where
         Args: serde::de::DeserializeOwned,
         Source: Stream<Item = Result<Body, Error>> + Send + 'static,
-        Sink_: Sink<StreamItem, Error = never::Never> + Send + 'static,
+        Sink_: Sink<StreamItem, Error = ()> + Send + 'static,
     {
         let method2 = method.to_string();
-        self.duplex_handlers.insert(
+        self.stream_handlers.insert(
             vec![method.to_string()],
             Box::new(move |args| {
                 let args = serde_json::Value::Array(args);
@@ -213,10 +197,7 @@ impl Service {
                     }
                     Err(error) => {
                         tracing::warn!(method = ?method2, ?error, "failed to deserialize arguments");
-                        let source = error_source(Error::deserialize_arguments(error))
-                        .boxed();
-                        let sink = Box::pin(futures::sink::drain::<StreamItem>().sink_map_err(|infallible| match infallible {}));
-                        (source, sink)
+                        error_endpoint(Error::deserialize_arguments(error))
                     }
                 }
             }),
@@ -226,27 +207,15 @@ impl Service {
     pub fn add_service(&mut self, group: impl ToString, service: Self) {
         let Self {
             async_handlers,
-            source_handlers,
-            sink_handlers,
-            duplex_handlers,
+            stream_handlers,
         } = service;
         self.async_handlers
             .extend(async_handlers.into_iter().map(|(mut k, v)| {
                 k.insert(0, group.to_string());
                 (k, v)
             }));
-        self.source_handlers
-            .extend(source_handlers.into_iter().map(|(mut k, v)| {
-                k.insert(0, group.to_string());
-                (k, v)
-            }));
-        self.sink_handlers
-            .extend(sink_handlers.into_iter().map(|(mut k, v)| {
-                k.insert(0, group.to_string());
-                (k, v)
-            }));
-        self.duplex_handlers
-            .extend(duplex_handlers.into_iter().map(|(mut k, v)| {
+        self.stream_handlers
+            .extend(stream_handlers.into_iter().map(|(mut k, v)| {
                 k.insert(0, group.to_string());
                 (k, v)
             }));
@@ -266,43 +235,16 @@ impl Service {
         }
     }
 
-    pub(super) fn handle_source(
+    pub(super) fn handle_stream(
         &self,
         method: Vec<String>,
         args: Vec<serde_json::Value>,
-    ) -> BoxSource {
-        match self.source_handlers.get(&method) {
-            Some(handler) => handler(args),
-            None => {
-                tracing::warn!(method = ?method.join("."), "missing source");
-                Box::pin(error_source(Error::method_not_found(&method)))
-            }
-        }
-    }
-
-    pub(super) fn handle_sink(&self, method: Vec<String>, args: Vec<serde_json::Value>) -> BoxSink {
-        match self.sink_handlers.get(&method) {
+    ) -> BoxEndpoint {
+        match self.stream_handlers.get(&method) {
             Some(handler) => handler(args),
             None => {
                 tracing::warn!(method = ?method.join("."), "missing sink");
-                Box::pin(error_sink(Error::method_not_found(&method)))
-            }
-        }
-    }
-
-    pub(super) fn handle_duplex(
-        &self,
-        method: Vec<String>,
-        args: Vec<serde_json::Value>,
-    ) -> BoxDuplex {
-        match self.duplex_handlers.get(&method) {
-            Some(handler) => handler(args),
-            None => {
-                tracing::warn!(method = ?method.join("."), "missing duplex");
-                let source = error_source(Error::method_not_found(&method)).boxed();
-                let sink =
-                    Box::pin(futures::sink::drain().sink_map_err(|infallible| match infallible {}));
-                (source, sink)
+                error_endpoint(Error::method_not_found(&method))
             }
         }
     }
@@ -316,13 +258,72 @@ impl std::fmt::Debug for Service {
                 &self.async_handlers.keys().collect::<Vec<_>>(),
             )
             .field(
-                "source_handlers",
-                &self.source_handlers.keys().collect::<Vec<_>>(),
-            )
-            .field(
-                "sink_handlers",
-                &self.sink_handlers.keys().collect::<Vec<_>>(),
+                "stream_handlers",
+                &self.stream_handlers.keys().collect::<Vec<_>>(),
             )
             .finish()
     }
+}
+
+fn error_endpoint(error: Error) -> BoxEndpoint {
+    let sink = futures::sink::drain().sink_map_err(|infallible| match infallible {});
+    let source = futures::stream::once(async move { Err(error) });
+    (source.boxed(), Box::pin(sink))
+}
+
+fn sink_to_endpoint(
+    sink: impl Sink<StreamItem, Error = SinkError> + Send + 'static,
+) -> BoxEndpoint {
+    let (response_sender, response_receiver) =
+        futures::channel::oneshot::channel::<Result<Body, Error>>();
+    let source = crate::utils::OneshotStream::new(response_receiver);
+    let duplex_sink = sink
+        .with::<_, _, _, SinkError>(|item| {
+            futures::future::ready({
+                match item {
+                    StreamItem::Data(_) => Ok(item),
+                    StreamItem::Error(err) => Err(SinkError::Error(err)),
+                    StreamItem::End => Err(SinkError::Done),
+                }
+            })
+        })
+        .sink_map_err(|err| match err {
+            SinkError::Done => drop(response_sender),
+            SinkError::Error(err) => response_sender.send(Err(err)).unwrap(),
+        });
+    (source.boxed(), Box::pin(duplex_sink))
+}
+
+fn stream_to_endpoint(
+    source: impl Stream<Item = Result<Body, Error>> + Send + 'static,
+) -> BoxEndpoint {
+    let mut source = Box::pin(source);
+    let mut done = false;
+    let (peer_end_sender, mut peer_end_receiver) = futures::channel::oneshot::channel();
+
+    let duplex_source = futures::stream::poll_fn(move |ctx| -> Poll<Option<Result<Body, Error>>> {
+        if done {
+            return Poll::Ready(None);
+        }
+        match peer_end_receiver.poll_unpin(ctx) {
+            Poll::Ready(value) => {
+                done = true;
+                let response = match value.unwrap() {
+                    StreamItem::Data(_) => Some(Err(Error {
+                        name: "SENT_DATA_TO_SOURCE".to_string(),
+                        message: "Cannot send data to a \"source\" stream".to_string(),
+                    })),
+                    StreamItem::Error(error) => Some(Err(error)),
+                    StreamItem::End => None,
+                };
+                return Poll::Ready(response);
+            }
+            Poll::Pending => {}
+        }
+        source.as_mut().poll_next(ctx)
+    });
+    (
+        duplex_source.boxed(),
+        Box::pin(crate::utils::OneshotSink::new(peer_end_sender).sink_map_err(|_| ())),
+    )
 }

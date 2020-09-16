@@ -2,7 +2,7 @@ use anyhow::Context;
 use futures::prelude::*;
 
 use super::endpoint::Endpoint;
-use super::server::{error_source, AsyncResponse, Body, Error, Service, SinkError, StreamItem};
+use super::server::{AsyncResponse, Body, Error, Service, SinkError, StreamItem};
 
 fn test_service() -> Service {
     let mut service = Service::new();
@@ -25,9 +25,11 @@ fn test_service() -> Service {
     service.add_source(
         "sourceError",
         |(_, error): (serde_json::Value, EchoError)| {
-            error_source(Error {
-                name: error.name,
-                message: error.message,
+            futures::stream::once(async move {
+                Err(Error {
+                    name: error.name,
+                    message: error.message,
+                })
             })
         },
     );

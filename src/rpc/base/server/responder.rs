@@ -1,6 +1,6 @@
 use futures::prelude::*;
 
-use super::service::{Error, StreamItem};
+use super::service::StreamItem;
 use crate::rpc::base::packet::Response;
 
 #[derive(Debug)]
@@ -103,17 +103,7 @@ pub struct StreamResponder {
 }
 
 impl StreamResponder {
-    pub async fn send_item(&mut self, item: StreamItem) -> anyhow::Result<()> {
+    pub async fn send(&mut self, item: StreamItem) -> anyhow::Result<()> {
         self.responder.send(item.into_response(self.id)).await
-    }
-
-    pub async fn end(&mut self) -> anyhow::Result<()> {
-        self.responder
-            .send(Response::StreamEnd { number: self.id })
-            .await
-    }
-
-    pub async fn err(&mut self, error: Error) -> anyhow::Result<()> {
-        self.send_item(StreamItem::Error(error)).await
     }
 }
