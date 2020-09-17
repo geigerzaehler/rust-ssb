@@ -243,7 +243,7 @@ impl Service {
         match self.stream_handlers.get(&method) {
             Some(handler) => handler(args),
             None => {
-                tracing::warn!(method = ?method.join("."), "missing sink");
+                tracing::warn!(method = ?method.join("."), "missing stream method");
                 error_endpoint(Error::method_not_found(&method))
             }
         }
