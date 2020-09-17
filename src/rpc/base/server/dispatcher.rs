@@ -25,6 +25,7 @@ where
     while let Some(request) = request_stream.next().await {
         request_dispatcher.handle_request(request)?;
     }
+    println!("done");
     drop(request_dispatcher);
     response_worker.join().await;
     Ok(())
@@ -119,8 +120,8 @@ impl StreamHandle {
                 let item = source.next().await;
                 let item = StreamItem::from(item);
                 let is_end = item.is_end();
-                responder.send(item).await.unwrap();
-                if is_end {
+                let result = responder.send(item).await;
+                if is_end || result.is_err() {
                     break;
                 }
             }
@@ -364,6 +365,42 @@ mod test {
         );
     }
 
+    #[async_std::test]
+    async fn connection_closed() {
+        let _ = tracing_subscriber::fmt::try_init();
+
+        let mut service = Service::new();
+        service.add_source("source", |_: Vec<()>| futures::stream::pending());
+        service.add_sink("sink", |_: Vec<()>| {
+            futures::sink::drain().sink_map_err(|infallible| match infallible {})
+        });
+
+        let mut test_dispatcher = TestDispatcher::new(service);
+
+        test_dispatcher
+            .send(Request::StreamData {
+                number: 1,
+                body: Body::json(&StreamRequest {
+                    name: vec!["source".to_string()],
+                    type_: RequestType::Source,
+                    args: vec![],
+                }),
+            })
+            .await;
+        test_dispatcher
+            .send(Request::StreamData {
+                number: 2,
+                body: Body::json(&StreamRequest {
+                    name: vec!["sink".to_string()],
+                    type_: RequestType::Sink,
+                    args: vec![],
+                }),
+            })
+            .await;
+        test_dispatcher.close_connection();
+        test_dispatcher.end().await;
+    }
+
     struct TestDispatcher {
         request_sender: futures::channel::mpsc::UnboundedSender<Request>,
         response_receiver: futures::channel::mpsc::UnboundedReceiver<Response>,
@@ -391,6 +428,11 @@ mod test {
 
         async fn recv(&mut self) -> Option<Response> {
             self.response_receiver.next().await
+        }
+
+        fn close_connection(&mut self) {
+            self.request_sender.close_channel();
+            self.response_receiver.close();
         }
 
         async fn end(self) -> Vec<Response> {

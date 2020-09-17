@@ -308,13 +308,16 @@ fn stream_to_endpoint(
         match peer_end_receiver.poll_unpin(ctx) {
             Poll::Ready(value) => {
                 done = true;
-                let response = match value.unwrap() {
-                    StreamItem::Data(_) => Some(Err(Error {
-                        name: "SENT_DATA_TO_SOURCE".to_string(),
-                        message: "Cannot send data to a \"source\" stream".to_string(),
-                    })),
-                    StreamItem::Error(error) => Some(Err(error)),
-                    StreamItem::End => None,
+                let response = match value {
+                    Ok(item) => match item {
+                        StreamItem::Data(_) => Some(Err(Error {
+                            name: "SENT_DATA_TO_SOURCE".to_string(),
+                            message: "Cannot send data to a \"source\" stream".to_string(),
+                        })),
+                        StreamItem::Error(error) => Some(Err(error)),
+                        StreamItem::End => None,
+                    },
+                    Err(_cancelled) => None,
                 };
                 return Poll::Ready(response);
             }
