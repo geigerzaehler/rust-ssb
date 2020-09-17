@@ -65,7 +65,7 @@ async fn echo_error() -> anyhow::Result<()> {
     Ok(())
 }
 
-const SERVER_ADDR: &str = "127.0.0.1:8080";
+const SERVER_ADDR: &str = "127.0.0.1:19423";
 
 // Create a client that connects to a server at [SERVER_ADDR].
 async fn connect_client() -> Result<ssb::rpc::base::Endpoint, std::io::Error> {
