@@ -27,6 +27,8 @@ const funcs = lodash.mapValues(api, ({ type, func }, method) => {
   }
 });
 
+const port = 19423;
+
 createServer((stream) => {
   console.log("ACCEPTED CONNNECTION");
   stream.on("end", () => {
@@ -35,4 +37,6 @@ createServer((stream) => {
   stream = toPull.duplex(stream);
   const server = muxrpc(null, manifest)(funcs);
   pull(stream, server.createStream(), stream);
-}).listen(8080);
+}).listen(port, () => {
+  console.log(`Server listening at localhost:${port}`);
+});
