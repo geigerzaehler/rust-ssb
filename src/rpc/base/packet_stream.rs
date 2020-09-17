@@ -10,9 +10,9 @@ use crate::utils::ReadBuffer;
 #[derive(Debug, thiserror::Error)]
 /// Error receiving an RPC [Packet].
 pub enum NextPacketError {
-    #[error("Source")]
+    #[error("Failed to read bytes")]
     Source(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
-    #[error("Invalid header")]
+    #[error("Failed to parse packet header")]
     InvalidHeader(
         #[source]
         #[from]
