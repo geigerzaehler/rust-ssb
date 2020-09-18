@@ -194,15 +194,23 @@ struct Help {
 
 impl Help {
     async fn run(&self, options: Options) -> anyhow::Result<()> {
+        use crate::rpc::ssb::Error;
         let mut module = self
             .method
             .split('.')
             .map(std::borrow::ToOwned::to_owned)
             .collect::<Vec<_>>();
         let method = module.pop().unwrap();
+        let module = module.get(0).map(AsRef::as_ref);
 
         let mut client = options.client().await?;
-        let module_help = client.help(module.get(1).map(AsRef::as_ref)).await?;
+        let module_help = client.help(module).await.map_err(|err| match err {
+            Error::Rpc { .. } => anyhow::anyhow!(
+                "No help for module `{}` available",
+                module.unwrap_or("root")
+            ),
+            err => anyhow::Error::from(err),
+        })?;
         let method_help = module_help.methods.get(&method).ok_or(anyhow::anyhow!(
             "Help for method `{}` not available",
             self.method
