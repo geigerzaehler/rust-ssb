@@ -53,6 +53,11 @@ impl Client {
         Ok(help)
     }
 
+    pub async fn publish(&mut self, content: MessageContent) -> Result<serde_json::Value, Error> {
+        self.send_async_json(&["publish"], vec![serde_json::to_value(content).unwrap()])
+            .await
+    }
+
     /// Send an `async` type request and expect a response with `T` serialized as.
     async fn send_async_json<T: serde::de::DeserializeOwned>(
         &mut self,
@@ -163,4 +168,11 @@ pub struct HelpMethodArg {
     #[serde(default)]
     pub optional: bool,
     pub default: Option<serde_json::Value>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct MessageContent {
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub text: String,
 }

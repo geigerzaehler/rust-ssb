@@ -91,6 +91,8 @@ impl Options {
 enum Command {
     Call(Call),
     Manifest(Manifest),
+    Help(Help),
+    PublishPost(PublishPost),
 }
 
 impl Command {
@@ -98,6 +100,8 @@ impl Command {
         match self {
             Self::Call(x) => x.run(options).await,
             Self::Manifest(x) => x.run(options).await,
+            Self::Help(x) => x.run(options).await,
+            Self::PublishPost(x) => x.run(options).await,
         }
     }
 }
@@ -177,6 +181,59 @@ impl Manifest {
 
         table.printstd();
 
+        Ok(())
+    }
+}
+
+/// Print help for an RPC method
+#[derive(StructOpt)]
+struct Help {
+    /// Method path delimited with a dot (.)
+    method: String,
+}
+
+impl Help {
+    async fn run(&self, options: Options) -> anyhow::Result<()> {
+        let mut module = self
+            .method
+            .split('.')
+            .map(std::borrow::ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        let method = module.pop().unwrap();
+
+        let mut client = options.client().await?;
+        let module_help = client.help(module.get(1).map(AsRef::as_ref)).await?;
+        let method_help = module_help.methods.get(&method).ok_or(anyhow::anyhow!(
+            "Help for method `{}` not available",
+            self.method
+        ))?;
+
+        let mut table = new_table();
+        table.add_row(prettytable::row!["NAME", method]);
+        table.add_row(prettytable::row!["TYPE", method_help.type_]);
+        table.add_row(prettytable::row!["DESCRIPTION", method_help.description]);
+        table.printstd();
+        Ok(())
+    }
+}
+
+/// Publish a post
+#[derive(StructOpt)]
+struct PublishPost {
+    /// Text content of the post
+    text: String,
+}
+
+impl PublishPost {
+    async fn run(&self, options: Options) -> anyhow::Result<()> {
+        let mut client = options.client().await?;
+        let message = client
+            .publish(crate::rpc::ssb::MessageContent {
+                type_: "post".to_string(),
+                text: self.text.clone(),
+            })
+            .await?;
+        println!("{}", serde_json::to_string_pretty(&message).unwrap());
         Ok(())
     }
 }
