@@ -93,6 +93,7 @@ enum Command {
     Manifest(Manifest),
     Help(Help),
     PublishPost(PublishPost),
+    Invite(Invite),
 }
 
 impl Command {
@@ -102,6 +103,7 @@ impl Command {
             Self::Manifest(x) => x.run(options).await,
             Self::Help(x) => x.run(options).await,
             Self::PublishPost(x) => x.run(options).await,
+            Self::Invite(x) => x.run(options).await,
         }
     }
 }
@@ -242,6 +244,39 @@ impl PublishPost {
             })
             .await?;
         println!("{}", serde_json::to_string_pretty(&message).unwrap());
+        Ok(())
+    }
+}
+
+/// Manage pub invites
+#[derive(StructOpt)]
+enum Invite {
+    Create(InviteCreate),
+}
+
+impl Invite {
+    async fn run(&self, options: Options) -> anyhow::Result<()> {
+        match self {
+            Invite::Create(x) => x.run(options).await,
+        }
+    }
+}
+
+/// Create an invite
+#[derive(StructOpt)]
+struct InviteCreate {
+    /// Number of times the invite can be used
+    #[structopt(short, default_value = "1")]
+    uses: u32,
+}
+
+impl InviteCreate {
+    async fn run(&self, options: Options) -> anyhow::Result<()> {
+        let mut client = options.client().await?;
+        let invite = client
+            .invite_create(crate::rpc::ssb::InviteCreateParams { uses: self.uses })
+            .await?;
+        println!("{}", invite);
         Ok(())
     }
 }

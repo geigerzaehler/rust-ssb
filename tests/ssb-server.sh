@@ -19,5 +19,11 @@ docker run \
     --env SSB_path=/data \
     --user "$(id -u)" \
     --publish 8008:8008 \
+    --hostname "ssb-test-server.local" \
     thoschol/ssb-server \
-    start --logging.level info --verbose
+    start \
+    --logging.level info \
+    --verbose \
+    --host "ssb-test-server.local" \
+    --replicate.legacy false \
+    --ebt.logging true

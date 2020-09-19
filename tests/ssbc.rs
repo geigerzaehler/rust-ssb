@@ -16,3 +16,15 @@ fn manifest() {
         .write_all(stdout_lines.join("\n").as_ref())
         .unwrap();
 }
+
+#[test]
+fn invite_create() {
+    let mut cmd = assert_cmd::Command::cargo_bin("ssbc").unwrap();
+    cmd.args(&[
+        "--secret-file",
+        "/tmp/rust-ssb-test/secret",
+        "invite",
+        "create",
+    ]);
+    cmd.unwrap();
+}

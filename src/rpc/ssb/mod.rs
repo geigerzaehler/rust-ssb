@@ -58,6 +58,31 @@ impl Client {
             .await
     }
 
+    /// Create an invitation
+    pub async fn invite_create(&mut self, params: InviteCreateParams) -> Result<String, Error> {
+        let response = self
+            .endpoint
+            .client()
+            .send_async(
+                vec!["invite".to_string(), "create".to_string()],
+                vec![serde_json::to_value(params).unwrap()],
+            )
+            .await?;
+
+        match response {
+            crate::rpc::base::AsyncResponse::Json(_) => {
+                Err(Error::InvalidResponseType { type_: "json" })
+            }
+            crate::rpc::base::AsyncResponse::String(content) => Ok(content),
+            crate::rpc::base::AsyncResponse::Blob(_) => {
+                Err(Error::InvalidResponseType { type_: "blob" })
+            }
+            crate::rpc::base::AsyncResponse::Error { name, message } => {
+                Err(Error::Rpc { name, message })
+            }
+        }
+    }
+
     /// Send an `async` type request and expect a response with `T` serialized as.
     async fn send_async_json<T: serde::de::DeserializeOwned>(
         &mut self,
@@ -175,4 +200,11 @@ pub struct MessageContent {
     #[serde(rename = "type")]
     pub type_: String,
     pub text: String,
+}
+
+/// Parameters for [Client::invite_create].
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct InviteCreateParams {
+    /// Number of times this invite can be used
+    pub uses: u32,
 }
