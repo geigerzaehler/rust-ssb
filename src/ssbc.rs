@@ -213,10 +213,10 @@ impl Help {
             ),
             err => anyhow::Error::from(err),
         })?;
-        let method_help = module_help.methods.get(&method).ok_or(anyhow::anyhow!(
-            "Help for method `{}` not available",
-            self.method
-        ))?;
+        let method_help = module_help
+            .methods
+            .get(&method)
+            .ok_or_else(|| anyhow::anyhow!("Help for method `{}` not available", self.method))?;
 
         let mut table = new_table();
         table.add_row(prettytable::row!["NAME", method]);
