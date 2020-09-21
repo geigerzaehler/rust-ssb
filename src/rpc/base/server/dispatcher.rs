@@ -2,8 +2,9 @@ use anyhow::Context;
 use futures::prelude::*;
 
 use super::responder::{Responder, ResponseWorker, StreamResponder};
-use super::service::{BoxEndpoint, Error, Service, StreamItem};
+use super::service::{BoxEndpoint, Service};
 use crate::rpc::base::packet::{Request, Response};
+use crate::rpc::base::stream_item::{Error, StreamItem};
 use crate::rpc::base::stream_request::StreamRequest;
 
 pub async fn run<ResponseSink>(

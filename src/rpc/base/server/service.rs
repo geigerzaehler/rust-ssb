@@ -5,27 +5,7 @@ use std::collections::HashMap;
 use std::{pin::Pin, task::Poll};
 
 use crate::rpc::base::packet::{Body, Response};
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Error {
-    pub name: String,
-    pub message: String,
-}
-
-impl Error {
-    pub(super) fn method_not_found(method: &[String]) -> Self {
-        let name = "METHOD_NOT_FOUND".to_string();
-        let message = format!("Method \"{}\" not found", method.join("."));
-        Self { name, message }
-    }
-
-    pub(super) fn deserialize_arguments(error: serde_json::Error) -> Self {
-        Self {
-            name: "ArgumentError".to_string(),
-            message: format!("Failed to deserialize arguments {}", error),
-        }
-    }
-}
+use crate::rpc::base::stream_item::{Error, StreamItem};
 
 #[derive(Debug, Clone)]
 pub enum AsyncResponse {
@@ -46,45 +26,6 @@ impl AsyncResponse {
                 name,
                 message,
             },
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum StreamItem {
-    Data(Body),
-    Error(Error),
-    End,
-}
-
-impl StreamItem {
-    pub(super) fn into_response(self, number: u32) -> Response {
-        match self {
-            StreamItem::Data(body) => Response::StreamData { number, body },
-            StreamItem::Error(Error { name, message }) => Response::StreamError {
-                number,
-                name,
-                message,
-            },
-            StreamItem::End => Response::StreamEnd { number },
-        }
-    }
-
-    pub(super) fn is_end(&self) -> bool {
-        match self {
-            StreamItem::Data(_) => false,
-            StreamItem::Error(_) => true,
-            StreamItem::End => true,
-        }
-    }
-}
-
-impl From<Option<Result<Body, Error>>> for StreamItem {
-    fn from(item: Option<Result<Body, Error>>) -> Self {
-        match item {
-            Some(Ok(body)) => Self::Data(body),
-            Some(Err(error)) => Self::Error(error),
-            None => Self::End,
         }
     }
 }
@@ -128,7 +69,7 @@ impl Service {
                 match serde_json::from_value::<Args>(args) {
                     Ok(args) => f(args).boxed(),
                     Err(error) => futures::future::ready(AsyncResponse::Err(
-                        Error::deserialize_arguments(error),
+                        deserialize_arguments_error(error),
                     ))
                     .boxed(),
                 }
@@ -150,7 +91,7 @@ impl Service {
                 let args = serde_json::Value::Array(args);
                 match serde_json::from_value::<Args>(args) {
                     Ok(args) => stream_to_endpoint(f(args)),
-                    Err(error) => error_endpoint(Error::deserialize_arguments(error)),
+                    Err(error) => error_endpoint(deserialize_arguments_error(error)),
                 }
             }),
         );
@@ -170,7 +111,7 @@ impl Service {
                 let args = serde_json::Value::Array(args);
                 match serde_json::from_value::<Args>(args) {
                     Ok(args) => sink_to_endpoint(f(args)),
-                    Err(error) => error_endpoint(Error::deserialize_arguments(error)),
+                    Err(error) => error_endpoint(deserialize_arguments_error(error)),
                 }
             }),
         );
@@ -197,7 +138,7 @@ impl Service {
                     }
                     Err(error) => {
                         tracing::warn!(method = ?method2, ?error, "failed to deserialize arguments");
-                        error_endpoint(Error::deserialize_arguments(error))
+                        error_endpoint(deserialize_arguments_error(error))
                     }
                 }
             }),
@@ -230,7 +171,7 @@ impl Service {
             Some(handler) => handler(args),
             None => {
                 tracing::warn!(method = ?method.join(","), "missing async method");
-                futures::future::ready(AsyncResponse::Err(Error::method_not_found(&method))).boxed()
+                futures::future::ready(AsyncResponse::Err(method_not_found_error(&method))).boxed()
             }
         }
     }
@@ -244,7 +185,7 @@ impl Service {
             Some(handler) => handler(args),
             None => {
                 tracing::warn!(method = ?method.join("."), "missing stream method");
-                error_endpoint(Error::method_not_found(&method))
+                error_endpoint(method_not_found_error(&method))
             }
         }
     }
@@ -329,4 +270,17 @@ fn stream_to_endpoint(
         duplex_source.boxed(),
         Box::pin(crate::utils::OneshotSink::new(peer_end_sender).sink_map_err(|_| ())),
     )
+}
+
+fn method_not_found_error(method: &[String]) -> Error {
+    let name = "METHOD_NOT_FOUND".to_string();
+    let message = format!("Method \"{}\" not found", method.join("."));
+    Error { name, message }
+}
+
+fn deserialize_arguments_error(error: serde_json::Error) -> Error {
+    Error {
+        name: "ArgumentError".to_string(),
+        message: format!("Failed to deserialize arguments {}", error),
+    }
 }

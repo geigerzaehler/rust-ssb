@@ -25,4 +25,8 @@ pub use packet::Body;
 pub use endpoint::Endpoint;
 
 #[doc(inline)]
-pub use server::{Service, SinkError, StreamItem};
+pub use server::{Service, SinkError};
+
+mod stream_item;
+#[doc(inline)]
+pub use stream_item::StreamItem;

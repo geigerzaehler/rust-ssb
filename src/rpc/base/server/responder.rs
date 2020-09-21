@@ -1,7 +1,7 @@
 use futures::prelude::*;
 
-use super::service::StreamItem;
 use crate::rpc::base::packet::Response;
+use crate::rpc::base::stream_item::StreamItem;
 
 #[derive(Debug)]
 struct ResponseMessage {
