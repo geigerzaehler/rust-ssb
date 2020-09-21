@@ -11,7 +11,7 @@ impl Client {
     /// Create a new client from a duplex raw byte connection with a server.
     ///
     /// See [crate::rpc::base::Client] for details.
-    pub fn new<Sink_, Stream_>(sink: Sink_, receive: Stream_) -> Self
+    pub fn new<Sink_, Stream_>(send: Sink_, receive: Stream_) -> Self
     where
         Sink_: Sink<Vec<u8>> + Send + Unpin + 'static,
         Sink_::Error: std::error::Error + Send + Sync + 'static,
@@ -19,7 +19,7 @@ impl Client {
         Stream_::Error: std::error::Error + Send + Sync + 'static,
     {
         Client {
-            endpoint: crate::rpc::base::Endpoint::new_client(sink, receive),
+            endpoint: crate::rpc::base::Endpoint::new_client(send, receive),
         }
     }
 

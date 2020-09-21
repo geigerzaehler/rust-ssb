@@ -1,5 +1,5 @@
-use crate::{crypto, handshake, SCUTTLEBUTT_NETWORK_IDENTIFIER};
 use anyhow::Context as _;
+use futures::prelude::*;
 use structopt::{clap, StructOpt};
 
 pub async fn main() -> anyhow::Result<()> {
@@ -9,7 +9,9 @@ pub async fn main() -> anyhow::Result<()> {
     args.command.run(args.options).await
 }
 
-/// Interact with a SSB server
+/// Interact with a SSB local server
+///
+/// Connects to the SSB server using a unix domain socket.
 #[derive(StructOpt)]
 #[structopt(
     name = "ssbc",
@@ -27,63 +29,33 @@ struct Cli {
 #[derive(StructOpt)]
 struct Options {
     #[structopt(long)]
-    /// File to load the secret key from. Defaults to ~/.ssb/secret.
-    secret_file: Option<std::path::PathBuf>,
-
-    /// Generate an emphemeral identity and don’t load an existing secret key.
-    #[structopt(long)]
-    anonymous: bool,
-
-    /// `hostname:port` pair to connect to the server.
-    #[structopt(long, default_value = "localhost:8008")]
-    server: String,
-
-    /// Base64 encoded public key of the server
-    #[structopt(long, parse(try_from_str = Options::parse_server_id))]
-    server_id: Option<crypto::sign::PublicKey>,
+    /// Path of Unix socket to connect to the server
+    #[structopt(long, default_value(Options::socket_default()))]
+    socket: std::path::PathBuf,
 }
 
 impl Options {
     async fn client(&self) -> anyhow::Result<crate::rpc::ssb::Client> {
-        let client_identity_sk = if self.anonymous {
-            crypto::sign::gen_keypair().1
-        } else {
-            if let Some(ref secret_file) = self.secret_file {
-                crate::secret_file::load(secret_file)
-            } else {
-                crate::secret_file::load_default()
-            }
-            .context("Failed to load secret key")?
-        };
-
-        let client_identity_pk = client_identity_sk.public_key();
-        let server_identity_pk = self.server_id.unwrap_or(client_identity_pk);
-
-        let client = handshake::Client::new(
-            &SCUTTLEBUTT_NETWORK_IDENTIFIER,
-            &server_identity_pk,
-            &client_identity_pk,
-            &client_identity_sk,
-        );
-
-        let stream = async_std::net::TcpStream::connect(&self.server)
+        let stream = async_std::os::unix::net::UnixStream::connect(&self.socket)
             .await
-            .context(format!("Failed to connect to {}", &self.server))?;
+            .context(format!(
+                "Failed to connect to {}",
+                self.socket.to_string_lossy()
+            ))?;
+        let (read, write) = stream.split();
+        let receive = crate::utils::read_to_stream(read);
+        let send = write.into_sink::<Vec<u8>>();
 
-        let (encrypt, decrypt) = client
-            .connect(stream)
-            .await
-            .context("Failed to establish encrypted connection with server")?;
-        let client = crate::rpc::ssb::Client::new(encrypt, decrypt);
+        let client = crate::rpc::ssb::Client::new(send, receive);
         Ok(client)
     }
 
-    fn parse_server_id(value: &str) -> anyhow::Result<crypto::sign::PublicKey> {
-        let bytes = base64::decode(value)?;
-        if bytes.len() != crypto::sign::PUBLICKEYBYTES {
-            anyhow::bail!("invalid size public key size");
-        }
-        Ok(crypto::sign::PublicKey::from_slice(&bytes).unwrap())
+    // We have to return `&str` instead of `String`. Otherwise we can’t use it the default value
+    // for the `socket` option.
+    fn socket_default() -> &'static str {
+        let home_dir = dirs::home_dir().unwrap();
+        let path = home_dir.join(".ssb").join("socket");
+        Box::leak(path.to_string_lossy().into_owned().into_boxed_str())
     }
 }
 
