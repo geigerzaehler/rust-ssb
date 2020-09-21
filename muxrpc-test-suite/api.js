@@ -63,16 +63,6 @@ const api = {
     },
   },
 
-  // Takes a number `n` as an argument. Consumes `n` items of the input
-  // stream and sends them back on the output stream. Then stops the
-  // output stream.
-  take: {
-    type: "duplex",
-    func: (n) => {
-      return pull.take(n);
-    },
-  },
-
   // Takes an array of values as the first argument. Consumes the input
   // stream and expects the stream values to be the input array. If not
   // returns an error.

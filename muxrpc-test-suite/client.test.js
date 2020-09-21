@@ -1,6 +1,5 @@
 const net = require("net");
 const assert = require("assert");
-const lodash = require("lodash");
 const pull = require("pull-stream");
 const toPull = require("stream-to-pull-stream");
 const muxrpc = require("muxrpc");
@@ -101,23 +100,6 @@ suite("client", function () {
     pull(pull.values(values), sink);
     const addedResult = await collect(source);
     assert.deepStrictEqual(addedResult, added);
-  });
-
-  test.skip("take (no-rust)", async function () {
-    const values = [1, 2, 3, 4, 5, 6];
-    const take = this.client.take(1);
-    const endNotify = throughEndNotify();
-    endNotify.ended.then(
-      () => {
-        console.log("ended");
-      },
-      () => {
-        console.log("ended error");
-      },
-    );
-    pull(pull.values(values), take.sink);
-    const outValues = await collect(pull.values(values), endNotify, take);
-    assert.deepStrictEqual(outValues, lodash.take(values, 4));
   });
 
   test("sinkExpect ok", async function () {
