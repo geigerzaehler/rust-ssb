@@ -1,4 +1,6 @@
 use super::error::Error;
+#[cfg(test)]
+use super::packet::Request;
 use super::packet::{Body, Response};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,8 +17,8 @@ impl StreamItem {
     }
 
     #[cfg(test)]
-    pub(super) fn into_request(self, number: u32) -> super::packet::Request {
-        super::packet::Request::StreamItem { number, item: self }
+    pub(super) fn into_request(self, number: u32) -> Request {
+        Request::StreamItem { number, item: self }
     }
 
     pub fn is_end(&self) -> bool {

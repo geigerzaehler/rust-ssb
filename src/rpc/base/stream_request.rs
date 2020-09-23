@@ -1,9 +1,22 @@
+#[cfg(test)]
+use super::{
+    packet::{Body, Request},
+    stream_item::StreamItem,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StreamRequest {
     pub name: Vec<String>,
     #[serde(rename = "type")]
     pub type_: RequestType,
     pub args: Vec<serde_json::Value>,
+}
+
+impl StreamRequest {
+    #[cfg(test)]
+    pub fn into_request(self, id: u32) -> Request {
+        StreamItem::Data(Body::json(&self)).into_request(id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

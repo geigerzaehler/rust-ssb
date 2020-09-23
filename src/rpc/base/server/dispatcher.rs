@@ -143,11 +143,11 @@ mod test {
 
         test_dispatcher
             .send(
-                StreamItem::Data(Body::json(&StreamRequest {
+                StreamRequest {
                     name: vec!["source".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }))
+                }
                 .into_request(1),
             )
             .await;
@@ -171,11 +171,11 @@ mod test {
 
         test_dispatcher
             .send(
-                StreamItem::Data(Body::json(&StreamRequest {
+                StreamRequest {
                     name: vec!["source".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }))
+                }
                 .into_request(1),
             )
             .await;
@@ -199,11 +199,11 @@ mod test {
 
         test_dispatcher
             .send(
-                StreamItem::Data(Body::json(&StreamRequest {
+                StreamRequest {
                     name: vec!["source".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }))
+                }
                 .into_request(1),
             )
             .await;
@@ -225,11 +225,11 @@ mod test {
 
         test_dispatcher
             .send(
-                StreamItem::Data(Body::json(&StreamRequest {
+                StreamRequest {
                     name: vec!["sink".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }))
+                }
                 .into_request(1),
             )
             .await;
@@ -253,11 +253,11 @@ mod test {
 
         test_dispatcher
             .send(
-                StreamItem::Data(Body::json(&StreamRequest {
+                StreamRequest {
                     name: vec!["sink".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }))
+                }
                 .into_request(1),
             )
             .await;
@@ -323,11 +323,11 @@ mod test {
 
         test_dispatcher
             .send(
-                StreamItem::Data(Body::json(&StreamRequest {
+                StreamRequest {
                     name: vec!["source".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }))
+                }
                 .into_request(1),
             )
             .await;
@@ -359,21 +359,21 @@ mod test {
 
         test_dispatcher
             .send(
-                StreamItem::Data(Body::json(&StreamRequest {
+                StreamRequest {
                     name: vec!["source".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }))
+                }
                 .into_request(1),
             )
             .await;
         test_dispatcher
             .send(
-                StreamItem::Data(Body::json(&StreamRequest {
+                StreamRequest {
                     name: vec!["sink".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }))
+                }
                 .into_request(1),
             )
             .await;
