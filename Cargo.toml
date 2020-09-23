@@ -14,7 +14,8 @@ required-features = ["test-server"]
 
 [dependencies]
 anyhow = "1.0"
-async-std = { version = "1.6", features = ["unstable" ] }
+# 1.6.4 does not compile with nightly
+async-std = { version = "=1.6.3", features = ["unstable" ] }
 async-trait = "0.1"
 base64 = "0.12"
 bytes = "0.5"
