@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::{pin::Pin, task::Poll};
 
 use crate::rpc::base::packet::{Body, Response};
-use crate::rpc::base::stream_item::{Error, StreamItem};
+use crate::rpc::base::{Error, StreamItem};
 
 #[derive(Debug, Clone)]
 pub enum AsyncResponse {

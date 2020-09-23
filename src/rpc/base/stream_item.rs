@@ -1,12 +1,8 @@
+use super::error::Error;
 use super::packet::{Body, Response};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Error {
-    pub name: String,
-    pub message: String,
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum StreamItem {
     Data(Body),
     Error(Error),
@@ -15,15 +11,12 @@ pub enum StreamItem {
 
 impl StreamItem {
     pub(super) fn into_response(self, number: u32) -> Response {
-        match self {
-            StreamItem::Data(body) => Response::StreamData { number, body },
-            StreamItem::Error(Error { name, message }) => Response::StreamError {
-                number,
-                name,
-                message,
-            },
-            StreamItem::End => Response::StreamEnd { number },
-        }
+        Response::StreamItem { number, item: self }
+    }
+
+    #[cfg(test)]
+    pub(super) fn into_request(self, number: u32) -> super::packet::Request {
+        super::packet::Request::StreamItem { number, item: self }
     }
 
     pub fn is_end(&self) -> bool {

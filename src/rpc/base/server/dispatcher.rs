@@ -4,8 +4,8 @@ use futures::prelude::*;
 use super::responder::{Responder, ResponseWorker, StreamResponder};
 use super::service::{BoxEndpoint, Service};
 use crate::rpc::base::packet::{Request, Response};
-use crate::rpc::base::stream_item::{Error, StreamItem};
 use crate::rpc::base::stream_request::StreamRequest;
+use crate::rpc::base::{Error, StreamItem};
 
 pub async fn run<ResponseSink>(
     service: Service,
@@ -26,7 +26,6 @@ where
     while let Some(request) = request_stream.next().await {
         request_dispatcher.handle_request(request)?;
     }
-    println!("done");
     drop(request_dispatcher);
     response_worker.join().await;
     Ok(())
@@ -57,50 +56,37 @@ impl RequestDispatcher {
                         .unwrap();
                 });
             }
-            Request::StreamData { number, body } => {
-                if let Some(stream) = self.streams.get_mut(&number) {
-                    stream.send(StreamItem::Data(body));
-                } else {
-                    let data = body.into_json().context("Failed to parse stream request")?;
-                    let StreamRequest { name, type_, args } =
-                        serde_json::from_slice(&data).context("Failed to parse stream request")?;
-                    let responder = self.responder.clone();
-                    tracing::debug!(name = ?name.join("."), ?type_, "stream request");
-                    let source = self.service.handle_stream(name, args);
-                    let stream_handle = StreamHandle::new(responder.stream(number), source);
-                    self.streams.insert(number, stream_handle);
+            Request::StreamItem { number, item } => match item {
+                StreamItem::Data(body) => {
+                    if let Some(stream) = self.streams.get_mut(&number) {
+                        stream.send(StreamItem::Data(body));
+                    } else {
+                        let data = body.into_json().context("Failed to parse stream request")?;
+                        let StreamRequest { name, type_, args } = serde_json::from_slice(&data)
+                            .context("Failed to parse stream request")?;
+                        let responder = self.responder.clone();
+                        tracing::debug!(name = ?name.join("."), ?type_, "stream request");
+                        let source = self.service.handle_stream(name, args);
+                        let stream_handle = StreamHandle::new(responder.stream(number), source);
+                        self.streams.insert(number, stream_handle);
+                    }
                 }
-            }
-            Request::StreamEnd { number } => {
-                if let Some(mut stream) = self.streams.remove(&number) {
-                    stream.send(StreamItem::End);
-                } else {
-                    self.responder
-                        .start_send(Response::StreamError {
-                            number,
-                            name: "STREAM_DOES_NOT_EXIST".to_string(),
-                            message: format!("Stream with ID {:?} does not exist", number),
-                        })
-                        .unwrap();
+                StreamItem::Error(_) | StreamItem::End => {
+                    if let Some(mut stream) = self.streams.remove(&number) {
+                        stream.send(item);
+                    } else {
+                        self.responder
+                            .start_send(
+                                StreamItem::Error(Error {
+                                    name: "STREAM_DOES_NOT_EXIST".to_string(),
+                                    message: format!("Stream with ID {:?} does not exist", number),
+                                })
+                                .into_response(number),
+                            )
+                            .unwrap();
+                    }
                 }
-            }
-            Request::StreamError {
-                number,
-                name,
-                message,
-            } => {
-                if let Some(mut stream) = self.streams.remove(&number) {
-                    stream.send(StreamItem::Error(Error { name, message }));
-                } else {
-                    self.responder
-                        .start_send(Response::StreamError {
-                            number,
-                            name: "STREAM_DOES_NOT_EXIST".to_string(),
-                            message: format!("Stream with ID {:?} does not exist", number),
-                        })
-                        .unwrap();
-                }
-            }
+            },
         }
         Ok(())
     }
@@ -156,19 +142,19 @@ mod test {
         let mut test_dispatcher = TestDispatcher::new(service);
 
         test_dispatcher
-            .send(Request::StreamData {
-                number: 1,
-                body: Body::json(&StreamRequest {
+            .send(
+                StreamItem::Data(Body::json(&StreamRequest {
                     name: vec!["source".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }),
-            })
+                }))
+                .into_request(1),
+            )
             .await;
 
         let response = test_dispatcher.recv().await.unwrap();
-        assert_eq!(response, Response::StreamEnd { number: 1 });
-        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+        assert_eq!(response, StreamItem::End.into_response(1));
+        test_dispatcher.send(StreamItem::End.into_request(1)).await;
 
         let responses = test_dispatcher.end().await;
         assert_eq!(responses, vec![]);
@@ -184,18 +170,18 @@ mod test {
         let mut test_dispatcher = TestDispatcher::new(service);
 
         test_dispatcher
-            .send(Request::StreamData {
-                number: 1,
-                body: Body::json(&StreamRequest {
+            .send(
+                StreamItem::Data(Body::json(&StreamRequest {
                     name: vec!["source".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }),
-            })
+                }))
+                .into_request(1),
+            )
             .await;
-        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+        test_dispatcher.send(StreamItem::End.into_request(1)).await;
         let responses = test_dispatcher.end().await;
-        assert_eq!(responses, vec![Response::StreamEnd { number: 1 }]);
+        assert_eq!(responses, vec![StreamItem::End.into_response(1)]);
     }
 
     #[async_std::test]
@@ -212,16 +198,16 @@ mod test {
         let mut test_dispatcher = TestDispatcher::new(service);
 
         test_dispatcher
-            .send(Request::StreamData {
-                number: 1,
-                body: Body::json(&StreamRequest {
+            .send(
+                StreamItem::Data(Body::json(&StreamRequest {
                     name: vec!["source".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }),
-            })
+                }))
+                .into_request(1),
+            )
             .await;
-        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+        test_dispatcher.send(StreamItem::End.into_request(1)).await;
         test_dispatcher.end().await;
         assert!(source_sender.is_closed());
     }
@@ -238,18 +224,18 @@ mod test {
         let mut test_dispatcher = TestDispatcher::new(service);
 
         test_dispatcher
-            .send(Request::StreamData {
-                number: 1,
-                body: Body::json(&StreamRequest {
+            .send(
+                StreamItem::Data(Body::json(&StreamRequest {
                     name: vec!["sink".to_string()],
-                    type_: RequestType::Sink,
+                    type_: RequestType::Source,
                     args: vec![],
-                }),
-            })
+                }))
+                .into_request(1),
+            )
             .await;
-        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+        test_dispatcher.send(StreamItem::End.into_request(1)).await;
         let responses = test_dispatcher.end().await;
-        assert_eq!(responses, vec![Response::StreamEnd { number: 1 }]);
+        assert_eq!(responses, vec![StreamItem::End.into_response(1)]);
     }
 
     #[async_std::test]
@@ -266,30 +252,24 @@ mod test {
         let mut test_dispatcher = TestDispatcher::new(service);
 
         test_dispatcher
-            .send(Request::StreamData {
-                number: 1,
-                body: Body::json(&StreamRequest {
+            .send(
+                StreamItem::Data(Body::json(&StreamRequest {
                     name: vec!["sink".to_string()],
-                    type_: RequestType::Sink,
+                    type_: RequestType::Source,
                     args: vec![],
-                }),
-            })
+                }))
+                .into_request(1),
+            )
             .await;
         test_dispatcher
-            .send(Request::StreamData {
-                number: 1,
-                body: Body::String("".to_string()),
-            })
+            .send(StreamItem::Data(Body::String("".to_string())).into_request(1))
             .await;
         test_dispatcher
-            .send(Request::StreamData {
-                number: 1,
-                body: Body::String("".to_string()),
-            })
+            .send(StreamItem::Data(Body::String("".to_string())).into_request(1))
             .await;
         let response = test_dispatcher.recv().await.unwrap();
-        assert_eq!(response, Response::StreamEnd { number: 1 });
-        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+        assert_eq!(response, StreamItem::End.into_response(1));
+        test_dispatcher.send(StreamItem::End.into_request(1)).await;
 
         let responses = test_dispatcher.end().await;
         assert_eq!(responses, vec![]);
@@ -304,28 +284,30 @@ mod test {
 
         let mut test_dispatcher = TestDispatcher::new(service);
 
-        test_dispatcher.send(Request::StreamEnd { number: 1 }).await;
+        test_dispatcher.send(StreamItem::End.into_request(1)).await;
         test_dispatcher
-            .send(Request::StreamError {
-                number: 2,
-                name: "".to_string(),
-                message: "".to_string(),
-            })
+            .send(
+                StreamItem::Error(Error {
+                    name: "".to_string(),
+                    message: "".to_string(),
+                })
+                .into_request(2),
+            )
             .await;
         let responses = test_dispatcher.end().await;
         assert_eq!(
             responses,
             vec![
-                Response::StreamError {
-                    number: 1,
+                StreamItem::Error(Error {
                     name: "STREAM_DOES_NOT_EXIST".to_string(),
                     message: "Stream with ID 1 does not exist".to_string()
-                },
-                Response::StreamError {
-                    number: 2,
+                })
+                .into_response(1),
+                StreamItem::Error(Error {
                     name: "STREAM_DOES_NOT_EXIST".to_string(),
                     message: "Stream with ID 2 does not exist".to_string()
-                }
+                })
+                .into_response(2)
             ]
         );
     }
@@ -340,29 +322,26 @@ mod test {
         let mut test_dispatcher = TestDispatcher::new(service);
 
         test_dispatcher
-            .send(Request::StreamData {
-                number: 1,
-                body: Body::json(&StreamRequest {
+            .send(
+                StreamItem::Data(Body::json(&StreamRequest {
                     name: vec!["source".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }),
-            })
+                }))
+                .into_request(1),
+            )
             .await;
         test_dispatcher
-            .send(Request::StreamData {
-                number: 1,
-                body: Body::String("".to_string()),
-            })
+            .send(StreamItem::Data(Body::String("".to_string())).into_request(1))
             .await;
         let responses = test_dispatcher.end().await;
         assert_eq!(
             responses,
-            vec![Response::StreamError {
-                number: 1,
+            vec![StreamItem::Error(Error {
                 name: "SENT_DATA_TO_SOURCE".to_string(),
                 message: "Cannot send data to a \"source\" stream".to_string()
-            }]
+            })
+            .into_response(1)]
         );
     }
 
@@ -379,24 +358,24 @@ mod test {
         let mut test_dispatcher = TestDispatcher::new(service);
 
         test_dispatcher
-            .send(Request::StreamData {
-                number: 1,
-                body: Body::json(&StreamRequest {
+            .send(
+                StreamItem::Data(Body::json(&StreamRequest {
                     name: vec!["source".to_string()],
                     type_: RequestType::Source,
                     args: vec![],
-                }),
-            })
+                }))
+                .into_request(1),
+            )
             .await;
         test_dispatcher
-            .send(Request::StreamData {
-                number: 2,
-                body: Body::json(&StreamRequest {
+            .send(
+                StreamItem::Data(Body::json(&StreamRequest {
                     name: vec!["sink".to_string()],
-                    type_: RequestType::Sink,
+                    type_: RequestType::Source,
                     args: vec![],
-                }),
-            })
+                }))
+                .into_request(1),
+            )
             .await;
         test_dispatcher.close_connection();
         test_dispatcher.end().await;

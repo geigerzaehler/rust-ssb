@@ -30,3 +30,7 @@ pub use server::{Service, SinkError};
 mod stream_item;
 #[doc(inline)]
 pub use stream_item::StreamItem;
+
+mod error;
+#[doc(inline)]
+pub use error::Error;

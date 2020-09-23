@@ -3,7 +3,7 @@ use futures::prelude::*;
 
 use super::endpoint::Endpoint;
 use super::server::{AsyncResponse, Body, Service, SinkError};
-use super::stream_item::{Error, StreamItem};
+use super::{Error, StreamItem};
 
 fn test_service() -> Service {
     let mut service = Service::new();
