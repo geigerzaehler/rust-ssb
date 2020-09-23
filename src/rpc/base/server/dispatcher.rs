@@ -1,7 +1,7 @@
 use anyhow::Context;
 use futures::prelude::*;
 
-use super::responder::{Responder, ResponseWorker, StreamResponder};
+use super::responder::{Responder, StreamResponder};
 use super::service::{BoxEndpoint, Service};
 use crate::rpc::base::packet::{Request, Response};
 use crate::rpc::base::stream_request::StreamRequest;
@@ -17,17 +17,15 @@ where
     ResponseSink::Error: std::error::Error + Send + Sync + 'static,
 {
     let mut request_stream = request_stream;
-    let response_worker = ResponseWorker::start(response_sink);
+    let responder = Responder::new(response_sink);
     let mut request_dispatcher = RequestDispatcher {
         service,
-        responder: response_worker.responder(),
+        responder,
         streams: std::collections::HashMap::new(),
     };
     while let Some(request) = request_stream.next().await {
         request_dispatcher.handle_request(request)?;
     }
-    drop(request_dispatcher);
-    response_worker.join().await;
     Ok(())
 }
 
@@ -47,7 +45,7 @@ impl RequestDispatcher {
                 args,
             } => {
                 let response_fut = self.service.handle_async(method, args);
-                let mut responder = self.responder.clone();
+                let responder = self.responder.clone();
                 async_std::task::spawn(async move {
                     let response = response_fut.await;
                     responder
@@ -75,15 +73,21 @@ impl RequestDispatcher {
                     if let Some(mut stream) = self.streams.remove(&number) {
                         stream.send(item);
                     } else {
-                        self.responder
-                            .start_send(
-                                StreamItem::Error(Error {
-                                    name: "STREAM_DOES_NOT_EXIST".to_string(),
-                                    message: format!("Stream with ID {:?} does not exist", number),
-                                })
-                                .into_response(number),
-                            )
-                            .unwrap();
+                        let responder = self.responder.clone();
+                        async_std::task::spawn(async move {
+                            let _ = responder
+                                .send_item(
+                                    number,
+                                    StreamItem::Error(Error {
+                                        name: "STREAM_DOES_NOT_EXIST".to_string(),
+                                        message: format!(
+                                            "Stream with ID {:?} does not exist",
+                                            number
+                                        ),
+                                    }),
+                                )
+                                .await;
+                        });
                     }
                 }
             },
@@ -101,14 +105,21 @@ impl StreamHandle {
         let (input_sender, input_receiver) = futures::channel::mpsc::unbounded::<StreamItem>();
 
         async_std::task::spawn(async move {
-            let mut responder = responder;
             let mut source = source;
             loop {
                 let item = source.next().await;
-                let item = StreamItem::from(item);
-                let is_end = item.is_end();
-                let result = responder.send(item).await;
-                if is_end || result.is_err() {
+                let result = match item {
+                    None => {
+                        let _ = responder.close().await;
+                        break;
+                    }
+                    Some(Ok(body)) => responder.send(body).await,
+                    Some(Err(error)) => {
+                        let _ = responder.error(error).await;
+                        break;
+                    }
+                };
+                if result.is_err() {
                     break;
                 }
             }

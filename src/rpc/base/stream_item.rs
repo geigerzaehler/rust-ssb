@@ -29,13 +29,3 @@ impl StreamItem {
         }
     }
 }
-
-impl From<Option<Result<Body, Error>>> for StreamItem {
-    fn from(item: Option<Result<Body, Error>>) -> Self {
-        match item {
-            Some(Ok(body)) => Self::Data(body),
-            Some(Err(error)) => Self::Error(error),
-            None => Self::End,
-        }
-    }
-}
