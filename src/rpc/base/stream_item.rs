@@ -1,7 +1,5 @@
 use super::error::Error;
-#[cfg(test)]
-use super::packet::Request;
-use super::packet::{Body, Response};
+use super::packet::{Body, Request, Response};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
@@ -16,7 +14,6 @@ impl StreamItem {
         Response::StreamItem { number, item: self }
     }
 
-    #[cfg(test)]
     pub(super) fn into_request(self, number: u32) -> Request {
         Request::StreamItem { number, item: self }
     }

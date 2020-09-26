@@ -1,7 +1,7 @@
 use anyhow::Context;
 use futures::prelude::*;
 
-use super::responder::{Responder, StreamResponder};
+use super::responder::{Responder, StreamSink};
 use super::service::{BoxEndpoint, Service};
 use crate::rpc::base::packet::{Request, Response};
 use crate::rpc::base::stream_request::StreamRequest;
@@ -76,7 +76,7 @@ impl RequestDispatcher {
                         let responder = self.responder.clone();
                         async_std::task::spawn(async move {
                             let _ = responder
-                                .send_item(
+                                .send_stream_item(
                                     number,
                                     StreamItem::Error(Error {
                                         name: "STREAM_DOES_NOT_EXIST".to_string(),
@@ -101,7 +101,7 @@ struct StreamHandle {
 }
 
 impl StreamHandle {
-    fn new(responder: StreamResponder, (source, sink): BoxEndpoint) -> Self {
+    fn new(responder: StreamSink, (source, sink): BoxEndpoint) -> Self {
         let (input_sender, input_receiver) = futures::channel::mpsc::unbounded::<StreamItem>();
 
         async_std::task::spawn(async move {

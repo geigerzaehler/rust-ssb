@@ -231,6 +231,21 @@ impl Body {
         }
     }
 
+    /// Deserializes a JSON body into the type `T`.
+    ///
+    /// Errors when the body does not contain JSON data or the JSON value cannot be decoded as `T`.
+    pub fn decode_json<T: serde::de::DeserializeOwned>(&self) -> Result<T, BodyDecodeError> {
+        match self {
+            Body::Blob(_) => Err(BodyDecodeError::InvalidBodyType {
+                actual: BodyType::Binary,
+            }),
+            Body::String(_) => Err(BodyDecodeError::InvalidBodyType {
+                actual: BodyType::Utf8String,
+            }),
+            Body::Json(data) => Ok(serde_json::from_slice(&data)?),
+        }
+    }
+
     fn build(self) -> (BodyType, Vec<u8>) {
         match self {
             Self::Blob(data) => (BodyType::Binary, data),
@@ -252,6 +267,20 @@ impl std::fmt::Debug for Body {
         }
     }
 }
+
+/// Error returned by [Body::decode_json].
+#[derive(Debug, thiserror::Error)]
+pub enum BodyDecodeError {
+    #[error("Invalid body type {actual:?}, expected JSON")]
+    InvalidBodyType { actual: BodyType },
+    #[error("Failed to decode json")]
+    DecodeJson(
+        #[from]
+        #[source]
+        serde_json::Error,
+    ),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RawPacket {
     request_number: i32,

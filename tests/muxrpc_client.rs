@@ -65,6 +65,37 @@ async fn echo_error() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[async_std::test]
+async fn duplex_add() {
+    let _ = tracing_subscriber::fmt::init();
+
+    let mut endpoint = connect_client().await.unwrap();
+    let (receive, send) = endpoint
+        .client()
+        .start_duplex(
+            vec!["duplexAdd".to_string()],
+            vec![serde_json::to_value(&1u32).unwrap()],
+        )
+        .await;
+
+    let inputs = 0..6u32;
+    let inputs2 = inputs.clone();
+    let expected_outputs = inputs.map(|x| x + 1).collect::<Vec<_>>();
+    async_std::task::spawn(async move {
+        for i in inputs2 {
+            send.send(ssb::rpc::base::Body::json(&i)).await.unwrap();
+        }
+        send.close().await.unwrap();
+    });
+
+    let outputs = receive
+        .map_ok(|body| body.decode_json::<u32>().unwrap())
+        .try_collect::<Vec<_>>()
+        .await
+        .unwrap();
+    assert_eq!(outputs, expected_outputs);
+}
+
 const SERVER_ADDR: &str = "127.0.0.1:19423";
 
 // Create a client that connects to a server at [SERVER_ADDR].
