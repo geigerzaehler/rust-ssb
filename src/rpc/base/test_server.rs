@@ -49,8 +49,7 @@ fn test_service() -> Service {
             .with(move |item: StreamItem| {
                 futures::future::ready(match item {
                     StreamItem::Data(body) => {
-                        let data = body.into_json().unwrap();
-                        let item = serde_json::from_slice::<serde_json::Value>(&data).unwrap();
+                        let item = body.decode_json::<serde_json::Value>().unwrap();
                         collected.push(item);
                         Ok(())
                     }
@@ -106,8 +105,7 @@ fn test_service() -> Service {
             }
             let result = match item {
                 StreamItem::Data(body) => {
-                    let data = body.into_json().unwrap();
-                    let value = serde_json::from_slice::<u64>(&data).unwrap();
+                    let value = body.decode_json::<u64>().unwrap();
                     Some(Ok(Body::json(&(value + summand))))
                 }
                 StreamItem::Error(err) => {

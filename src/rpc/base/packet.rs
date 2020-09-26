@@ -217,7 +217,7 @@ impl Body {
         Self::Json(serde_json::to_vec(value).unwrap())
     }
 
-    pub fn into_json(self) -> Result<Vec<u8>, PacketParseError> {
+    fn into_json(self) -> Result<Vec<u8>, PacketParseError> {
         match self {
             Body::Blob(_) => Err(PacketParseError::UnexpectedBodyType {
                 actual: BodyType::Binary,

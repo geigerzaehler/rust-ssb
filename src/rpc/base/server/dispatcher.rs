@@ -59,8 +59,8 @@ impl RequestDispatcher {
                     if let Some(stream) = self.streams.get_mut(&number) {
                         stream.send(StreamItem::Data(body));
                     } else {
-                        let data = body.into_json().context("Failed to parse stream request")?;
-                        let StreamRequest { name, type_, args } = serde_json::from_slice(&data)
+                        let StreamRequest { name, type_, args } = body
+                            .decode_json()
                             .context("Failed to parse stream request")?;
                         let responder = self.responder.clone();
                         tracing::debug!(name = ?name.join("."), ?type_, "stream request");
