@@ -1,5 +1,5 @@
 use super::packet::{Body, Request};
-use super::stream_item::StreamItem;
+use super::stream_message::StreamMessage;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StreamRequest {
@@ -11,7 +11,7 @@ pub struct StreamRequest {
 
 impl StreamRequest {
     pub fn into_request(self, id: u32) -> Request {
-        StreamItem::Data(Body::json(&self)).into_request(id)
+        StreamMessage::Data(Body::json(&self)).into_request(id)
     }
 }
 

@@ -5,7 +5,7 @@ use super::responder::{Responder, StreamSink};
 use super::service::{BoxEndpoint, Service};
 use crate::rpc::base::packet::{Request, Response};
 use crate::rpc::base::stream_request::StreamRequest;
-use crate::rpc::base::{Error, StreamItem};
+use crate::rpc::base::{Error, StreamMessage};
 
 pub async fn run<ResponseSink>(
     service: Service,
@@ -54,10 +54,10 @@ impl RequestDispatcher {
                         .unwrap();
                 });
             }
-            Request::StreamItem { number, item } => match item {
-                StreamItem::Data(body) => {
+            Request::Stream { number, message } => match message {
+                StreamMessage::Data(body) => {
                     if let Some(stream) = self.streams.get_mut(&number) {
-                        stream.send(StreamItem::Data(body));
+                        stream.send(StreamMessage::Data(body));
                     } else {
                         let StreamRequest { name, type_, args } = body
                             .decode_json()
@@ -69,16 +69,16 @@ impl RequestDispatcher {
                         self.streams.insert(number, stream_handle);
                     }
                 }
-                StreamItem::Error(_) | StreamItem::End => {
+                StreamMessage::Error(_) | StreamMessage::End => {
                     if let Some(mut stream) = self.streams.remove(&number) {
-                        stream.send(item);
+                        stream.send(message);
                     } else {
                         let responder = self.responder.clone();
                         async_std::task::spawn(async move {
                             let _ = responder
-                                .send_stream_item(
+                                .send_stream_message(
                                     number,
-                                    StreamItem::Error(Error {
+                                    StreamMessage::Error(Error {
                                         name: "STREAM_DOES_NOT_EXIST".to_string(),
                                         message: format!(
                                             "Stream with ID {:?} does not exist",
@@ -97,12 +97,12 @@ impl RequestDispatcher {
 }
 
 struct StreamHandle {
-    input_sender: futures::channel::mpsc::UnboundedSender<StreamItem>,
+    input_sender: futures::channel::mpsc::UnboundedSender<StreamMessage>,
 }
 
 impl StreamHandle {
     fn new(responder: StreamSink, (source, sink): BoxEndpoint) -> Self {
-        let (input_sender, input_receiver) = futures::channel::mpsc::unbounded::<StreamItem>();
+        let (input_sender, input_receiver) = futures::channel::mpsc::unbounded::<StreamMessage>();
 
         async_std::task::spawn(async move {
             let mut source = source;
@@ -132,8 +132,8 @@ impl StreamHandle {
         Self { input_sender }
     }
 
-    fn send(&mut self, item: StreamItem) {
-        let _ = self.input_sender.unbounded_send(item);
+    fn send(&mut self, stream_message: StreamMessage) {
+        let _ = self.input_sender.unbounded_send(stream_message);
     }
 }
 
@@ -164,8 +164,10 @@ mod test {
             .await;
 
         let response = test_dispatcher.recv().await.unwrap();
-        assert_eq!(response, StreamItem::End.into_response(1));
-        test_dispatcher.send(StreamItem::End.into_request(1)).await;
+        assert_eq!(response, StreamMessage::End.into_response(1));
+        test_dispatcher
+            .send(StreamMessage::End.into_request(1))
+            .await;
 
         let responses = test_dispatcher.end().await;
         assert_eq!(responses, vec![]);
@@ -190,9 +192,11 @@ mod test {
                 .into_request(1),
             )
             .await;
-        test_dispatcher.send(StreamItem::End.into_request(1)).await;
+        test_dispatcher
+            .send(StreamMessage::End.into_request(1))
+            .await;
         let responses = test_dispatcher.end().await;
-        assert_eq!(responses, vec![StreamItem::End.into_response(1)]);
+        assert_eq!(responses, vec![StreamMessage::End.into_response(1)]);
     }
 
     #[async_std::test]
@@ -218,7 +222,9 @@ mod test {
                 .into_request(1),
             )
             .await;
-        test_dispatcher.send(StreamItem::End.into_request(1)).await;
+        test_dispatcher
+            .send(StreamMessage::End.into_request(1))
+            .await;
         test_dispatcher.end().await;
         assert!(source_sender.is_closed());
     }
@@ -244,9 +250,11 @@ mod test {
                 .into_request(1),
             )
             .await;
-        test_dispatcher.send(StreamItem::End.into_request(1)).await;
+        test_dispatcher
+            .send(StreamMessage::End.into_request(1))
+            .await;
         let responses = test_dispatcher.end().await;
-        assert_eq!(responses, vec![StreamItem::End.into_response(1)]);
+        assert_eq!(responses, vec![StreamMessage::End.into_response(1)]);
     }
 
     #[async_std::test]
@@ -255,7 +263,7 @@ mod test {
 
         let mut service = Service::new();
         service.add_sink("sink", |_: Vec<()>| {
-            futures::sink::drain::<StreamItem>()
+            futures::sink::drain::<StreamMessage>()
                 .sink_map_err(|infallible| match infallible {})
                 .with(|_| futures::future::ready(Err(super::super::service::SinkError::Done)))
         });
@@ -273,14 +281,16 @@ mod test {
             )
             .await;
         test_dispatcher
-            .send(StreamItem::Data(Body::String("".to_string())).into_request(1))
+            .send(StreamMessage::Data(Body::String("".to_string())).into_request(1))
             .await;
         test_dispatcher
-            .send(StreamItem::Data(Body::String("".to_string())).into_request(1))
+            .send(StreamMessage::Data(Body::String("".to_string())).into_request(1))
             .await;
         let response = test_dispatcher.recv().await.unwrap();
-        assert_eq!(response, StreamItem::End.into_response(1));
-        test_dispatcher.send(StreamItem::End.into_request(1)).await;
+        assert_eq!(response, StreamMessage::End.into_response(1));
+        test_dispatcher
+            .send(StreamMessage::End.into_request(1))
+            .await;
 
         let responses = test_dispatcher.end().await;
         assert_eq!(responses, vec![]);
@@ -295,10 +305,12 @@ mod test {
 
         let mut test_dispatcher = TestDispatcher::new(service);
 
-        test_dispatcher.send(StreamItem::End.into_request(1)).await;
+        test_dispatcher
+            .send(StreamMessage::End.into_request(1))
+            .await;
         test_dispatcher
             .send(
-                StreamItem::Error(Error {
+                StreamMessage::Error(Error {
                     name: "".to_string(),
                     message: "".to_string(),
                 })
@@ -309,12 +321,12 @@ mod test {
         assert_eq!(
             responses,
             vec![
-                StreamItem::Error(Error {
+                StreamMessage::Error(Error {
                     name: "STREAM_DOES_NOT_EXIST".to_string(),
                     message: "Stream with ID 1 does not exist".to_string()
                 })
                 .into_response(1),
-                StreamItem::Error(Error {
+                StreamMessage::Error(Error {
                     name: "STREAM_DOES_NOT_EXIST".to_string(),
                     message: "Stream with ID 2 does not exist".to_string()
                 })
@@ -343,12 +355,12 @@ mod test {
             )
             .await;
         test_dispatcher
-            .send(StreamItem::Data(Body::String("".to_string())).into_request(1))
+            .send(StreamMessage::Data(Body::String("".to_string())).into_request(1))
             .await;
         let responses = test_dispatcher.end().await;
         assert_eq!(
             responses,
-            vec![StreamItem::Error(Error {
+            vec![StreamMessage::Error(Error {
                 name: "SENT_DATA_TO_SOURCE".to_string(),
                 message: "Cannot send data to a \"source\" stream".to_string()
             })

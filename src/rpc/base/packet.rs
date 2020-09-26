@@ -2,7 +2,7 @@ use super::header::BodyType;
 
 use super::error::Error;
 pub use super::header::{Header, HeaderFlags, HeaderParseError};
-use super::stream_item::StreamItem;
+use super::stream_message::StreamMessage;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
@@ -28,10 +28,10 @@ pub enum Request {
         #[cfg_attr(test, proptest(value = "vec![]"))]
         args: Vec<serde_json::Value>,
     },
-    StreamItem {
+    Stream {
         #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
         number: u32,
-        item: StreamItem,
+        message: StreamMessage,
     },
 }
 
@@ -50,10 +50,10 @@ pub enum Response {
         name: String,
         message: String,
     },
-    StreamItem {
+    Stream {
         #[cfg_attr(test, proptest(strategy = "1..(u32::MAX / 2)"))]
         number: u32,
-        item: StreamItem,
+        message: StreamMessage,
     },
 }
 
@@ -100,8 +100,8 @@ impl Packet {
         let packet = if request_number > 0 {
             let number = request_number as u32;
             let request = if header.flags.is_stream {
-                let item = parse_stream_item(&header.flags, body)?;
-                Request::StreamItem { number, item }
+                let message = parse_stream_message(&header.flags, body)?;
+                Request::Stream { number, message }
             } else {
                 // We are ignoring `header.flags.is_end_or_error`. It should
                 // always be set to `false` since `true` for async requests is
@@ -124,8 +124,8 @@ impl Packet {
         } else {
             let number = -request_number as u32;
             let response = if header.flags.is_stream {
-                let item = parse_stream_item(&header.flags, body)?;
-                Response::StreamItem { number, item }
+                let message = parse_stream_message(&header.flags, body)?;
+                Response::Stream { number, message }
             } else {
                 if header.flags.is_end_or_error {
                     let json = body.into_json()?;
@@ -157,8 +157,8 @@ impl Packet {
                     is_end_or_error: false,
                     body: Body::json(&RequestBody { name: method, args }),
                 },
-                Request::StreamItem { number, item } => {
-                    RawPacket::from_stream_item(number as i32, item)
+                Request::Stream { number, message } => {
+                    RawPacket::from_stream_message(number as i32, message)
                 }
             },
             Packet::Response(response) => match response {
@@ -178,8 +178,8 @@ impl Packet {
                     is_end_or_error: true,
                     body: Body::json(&Error { name, message }),
                 },
-                Response::StreamItem { number, item } => {
-                    RawPacket::from_stream_item(-(number as i32), item)
+                Response::Stream { number, message } => {
+                    RawPacket::from_stream_message(-(number as i32), message)
                 }
             },
         }
@@ -317,21 +317,21 @@ impl RawPacket {
         data
     }
 
-    fn from_stream_item(request_number: i32, stream_item: StreamItem) -> Self {
+    fn from_stream_message(request_number: i32, stream_message: StreamMessage) -> Self {
         Self {
             request_number,
             is_stream: true,
-            is_end_or_error: stream_item.is_end(),
-            body: stream_item_into_body(stream_item),
+            is_end_or_error: stream_message.is_end(),
+            body: stream_message_into_body(stream_message),
         }
     }
 }
 
-fn stream_item_into_body(stream_item: StreamItem) -> Body {
-    match stream_item {
-        StreamItem::Data(body) => body,
-        StreamItem::Error(error) => Body::json(&error),
-        StreamItem::End => Body::json(&true),
+fn stream_message_into_body(stream_message: StreamMessage) -> Body {
+    match stream_message {
+        StreamMessage::Data(body) => body,
+        StreamMessage::Error(error) => Body::json(&error),
+        StreamMessage::End => Body::json(&true),
     }
 }
 
@@ -342,25 +342,25 @@ fn parse_error_json(json: &[u8]) -> Result<Error, PacketParseError> {
     })
 }
 
-fn parse_stream_item(
+fn parse_stream_message(
     header_flags: &HeaderFlags,
     body: Body,
-) -> Result<StreamItem, PacketParseError> {
-    let item = if header_flags.is_end_or_error {
+) -> Result<StreamMessage, PacketParseError> {
+    let stream_message = if header_flags.is_end_or_error {
         let json = body.into_json()?;
         if json == b"true" {
-            StreamItem::End
+            StreamMessage::End
         } else {
             let error = parse_error_json(&json)?;
-            StreamItem::Error(Error {
+            StreamMessage::Error(Error {
                 name: error.name,
                 message: error.message,
             })
         }
     } else {
-        StreamItem::Data(body)
+        StreamMessage::Data(body)
     };
-    Ok(item)
+    Ok(stream_message)
 }
 
 #[cfg(test)]

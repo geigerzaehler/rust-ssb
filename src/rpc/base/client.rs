@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::error::Error;
 use super::packet::{Body, Request, Response};
-use super::stream_item::StreamItem;
+use super::stream_message::StreamMessage;
 use super::stream_request::{RequestType, StreamRequest};
 
 /// Client for an application agnostic RPC protocol described in the [Scuttlebutt
@@ -98,8 +98,8 @@ impl Client {
                         None
                     })
                 }
-                Response::StreamItem { number, item } => match item {
-                    StreamItem::Data(body) => {
+                Response::Stream { number, message } => match message {
+                    StreamMessage::Data(body) => {
                         if let Some(stream) = streams.get_mut(&number) {
                             // TODO handle error
                             stream.unbounded_send(Ok(body)).unwrap();
@@ -107,7 +107,7 @@ impl Client {
                             todo!("now stream")
                         }
                     }
-                    StreamItem::Error(error) => {
+                    StreamMessage::Error(error) => {
                         if let Some(stream) = streams.remove(&number) {
                             println!("jo");
                             // TODO handle error
@@ -116,8 +116,7 @@ impl Client {
                             todo!("now stream")
                         }
                     }
-                    StreamItem::End => {
-                        println!("jo");
+                    StreamMessage::End => {
                         streams.remove(&number);
                     }
                 },
@@ -223,12 +222,12 @@ impl SharedRequestSink {
         Ok(())
     }
 
-    async fn send_stream_item(
+    async fn send_stream_message(
         &self,
         stream_id: u32,
-        stream_item: StreamItem,
+        stream_message: StreamMessage,
     ) -> anyhow::Result<()> {
-        self.send(stream_item.into_request(stream_id)).await
+        self.send(stream_message.into_request(stream_id)).await
     }
 }
 
@@ -241,19 +240,19 @@ pub struct StreamRequestSender {
 impl StreamRequestSender {
     pub async fn send(&self, data: Body) -> anyhow::Result<()> {
         self.request_sender
-            .send_stream_item(self.id, StreamItem::Data(data))
+            .send_stream_message(self.id, StreamMessage::Data(data))
             .await
     }
 
     pub async fn close(self) -> anyhow::Result<()> {
         self.request_sender
-            .send_stream_item(self.id, StreamItem::End)
+            .send_stream_message(self.id, StreamMessage::End)
             .await
     }
 
     pub async fn error(self, error: Error) -> anyhow::Result<()> {
         self.request_sender
-            .send_stream_item(self.id, StreamItem::Error(error))
+            .send_stream_message(self.id, StreamMessage::Error(error))
             .await
     }
 }

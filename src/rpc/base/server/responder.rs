@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::rpc::base::error::Error;
 use crate::rpc::base::packet::{Body, Response};
-use crate::rpc::base::stream_item::StreamItem;
+use crate::rpc::base::stream_message::StreamMessage;
 
 type BoxResponseSink = Pin<Box<dyn Sink<Response, Error = anyhow::Error> + Send>>;
 
@@ -33,12 +33,12 @@ impl Responder {
         }
     }
 
-    pub async fn send_stream_item(
+    pub async fn send_stream_message(
         &self,
         stream_id: u32,
-        stream_item: StreamItem,
+        stream_message: StreamMessage,
     ) -> anyhow::Result<()> {
-        self.send(stream_item.into_response(stream_id)).await
+        self.send(stream_message.into_response(stream_id)).await
     }
 
     pub async fn send(&self, response: Response) -> anyhow::Result<()> {
@@ -57,19 +57,19 @@ pub struct StreamSink {
 impl StreamSink {
     pub async fn send(&self, data: Body) -> anyhow::Result<()> {
         self.responder
-            .send_stream_item(self.id, StreamItem::Data(data))
+            .send_stream_message(self.id, StreamMessage::Data(data))
             .await
     }
 
     pub async fn close(self) -> anyhow::Result<()> {
         self.responder
-            .send_stream_item(self.id, StreamItem::End)
+            .send_stream_message(self.id, StreamMessage::End)
             .await
     }
 
     pub async fn error(self, error: Error) -> anyhow::Result<()> {
         self.responder
-            .send_stream_item(self.id, StreamItem::Error(error))
+            .send_stream_message(self.id, StreamMessage::Error(error))
             .await
     }
 }

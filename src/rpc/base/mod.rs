@@ -27,9 +27,9 @@ pub use endpoint::Endpoint;
 #[doc(inline)]
 pub use server::{Service, SinkError};
 
-mod stream_item;
+mod stream_message;
 #[doc(inline)]
-pub use stream_item::StreamItem;
+pub use stream_message::StreamMessage;
 
 mod error;
 #[doc(inline)]

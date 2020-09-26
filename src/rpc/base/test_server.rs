@@ -3,7 +3,7 @@ use futures::prelude::*;
 
 use super::endpoint::Endpoint;
 use super::server::{AsyncResponse, Body, Service, SinkError};
-use super::{Error, StreamItem};
+use super::{Error, StreamMessage};
 
 fn test_service() -> Service {
     let mut service = Service::new();
@@ -46,15 +46,15 @@ fn test_service() -> Service {
         let mut collected = Vec::<serde_json::Value>::new();
         futures::sink::drain()
             .sink_map_err(|infallible| match infallible {})
-            .with(move |item: StreamItem| {
-                futures::future::ready(match item {
-                    StreamItem::Data(body) => {
-                        let item = body.decode_json::<serde_json::Value>().unwrap();
-                        collected.push(item);
+            .with(move |stream_message: StreamMessage| {
+                futures::future::ready(match stream_message {
+                    StreamMessage::Data(body) => {
+                        let stream_message = body.decode_json::<serde_json::Value>().unwrap();
+                        collected.push(stream_message);
                         Ok(())
                     }
-                    StreamItem::Error { .. } => Err(SinkError::Done),
-                    StreamItem::End => {
+                    StreamMessage::Error { .. } => Err(SinkError::Done),
+                    StreamMessage::End => {
                         if collected == values {
                             Err(SinkError::Done)
                         } else {
@@ -72,9 +72,9 @@ fn test_service() -> Service {
         let mut remaining_items = n;
         futures::sink::drain()
             .sink_map_err(|infallible| match infallible {})
-            .with(move |item: StreamItem| {
-                futures::future::ready(match item {
-                    StreamItem::Data(_) => {
+            .with(move |stream_message: StreamMessage| {
+                futures::future::ready(match stream_message {
+                    StreamMessage::Data(_) => {
                         remaining_items -= 1;
                         if remaining_items == 0 {
                             Err(SinkError::Error(Error {
@@ -85,7 +85,7 @@ fn test_service() -> Service {
                             Ok(())
                         }
                     }
-                    StreamItem::Error { .. } => Err(SinkError::Done),
+                    StreamMessage::Error { .. } => Err(SinkError::Done),
                     _ => Err(SinkError::Error(Error {
                         name: "Unexpected end or error".to_string(),
                         message: "".to_string(),
@@ -99,20 +99,20 @@ fn test_service() -> Service {
         // This should never panic. `incoming` is only dropped after we stop accepting inputs on `sink`.
         let sink = incoming_sink.sink_map_err(|err| panic!("{}", err));
 
-        let source = incoming.scan(false, move |closed, item| {
+        let source = incoming.scan(false, move |closed, stream_message| {
             if *closed {
                 return futures::future::ready(None);
             }
-            let result = match item {
-                StreamItem::Data(body) => {
+            let result = match stream_message {
+                StreamMessage::Data(body) => {
                     let value = body.decode_json::<u64>().unwrap();
                     Some(Ok(Body::json(&(value + summand))))
                 }
-                StreamItem::Error(err) => {
+                StreamMessage::Error(err) => {
                     *closed = true;
                     Some(Err(err))
                 }
-                StreamItem::End => {
+                StreamMessage::End => {
                     *closed = true;
                     None
                 }

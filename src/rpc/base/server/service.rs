@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::{pin::Pin, task::Poll};
 
 use crate::rpc::base::packet::{Body, Response};
-use crate::rpc::base::{Error, StreamItem};
+use crate::rpc::base::{Error, StreamMessage};
 
 #[derive(Debug, Clone)]
 pub enum AsyncResponse {
@@ -38,7 +38,7 @@ pub enum SinkError {
 
 pub(super) type BoxEndpointStream = BoxStream<'static, Result<Body, Error>>;
 
-pub(super) type BoxEndpointSink = Pin<Box<dyn Sink<StreamItem, Error = ()> + Send>>;
+pub(super) type BoxEndpointSink = Pin<Box<dyn Sink<StreamMessage, Error = ()> + Send>>;
 
 pub(super) type BoxEndpoint = (BoxEndpointStream, BoxEndpointSink);
 
@@ -103,7 +103,7 @@ impl Service {
         f: impl Fn(Args) -> Sink_ + Send + 'static,
     ) where
         Args: serde::de::DeserializeOwned,
-        Sink_: Sink<StreamItem, Error = SinkError> + Send + 'static,
+        Sink_: Sink<StreamMessage, Error = SinkError> + Send + 'static,
     {
         self.stream_handlers.insert(
             vec![method.to_string()],
@@ -124,7 +124,7 @@ impl Service {
     ) where
         Args: serde::de::DeserializeOwned,
         Source: Stream<Item = Result<Body, Error>> + Send + 'static,
-        Sink_: Sink<StreamItem, Error = ()> + Send + 'static,
+        Sink_: Sink<StreamMessage, Error = ()> + Send + 'static,
     {
         let method2 = method.to_string();
         self.stream_handlers.insert(
@@ -213,18 +213,18 @@ fn error_endpoint(error: Error) -> BoxEndpoint {
 }
 
 fn sink_to_endpoint(
-    sink: impl Sink<StreamItem, Error = SinkError> + Send + 'static,
+    sink: impl Sink<StreamMessage, Error = SinkError> + Send + 'static,
 ) -> BoxEndpoint {
     let (response_sender, response_receiver) =
         futures::channel::oneshot::channel::<Result<Body, Error>>();
     let source = crate::utils::OneshotStream::new(response_receiver);
     let duplex_sink = sink
-        .with::<_, _, _, SinkError>(|item| {
+        .with::<_, _, _, SinkError>(|stream_message| {
             futures::future::ready({
-                match item {
-                    StreamItem::Data(_) => Ok(item),
-                    StreamItem::Error(err) => Err(SinkError::Error(err)),
-                    StreamItem::End => Err(SinkError::Done),
+                match stream_message {
+                    StreamMessage::Data(_) => Ok(stream_message),
+                    StreamMessage::Error(err) => Err(SinkError::Error(err)),
+                    StreamMessage::End => Err(SinkError::Done),
                 }
             })
         })
@@ -250,13 +250,13 @@ fn stream_to_endpoint(
             Poll::Ready(value) => {
                 done = true;
                 let response = match value {
-                    Ok(item) => match item {
-                        StreamItem::Data(_) => Some(Err(Error {
+                    Ok(stream_message) => match stream_message {
+                        StreamMessage::Data(_) => Some(Err(Error {
                             name: "SENT_DATA_TO_SOURCE".to_string(),
                             message: "Cannot send data to a \"source\" stream".to_string(),
                         })),
-                        StreamItem::Error(error) => Some(Err(error)),
-                        StreamItem::End => None,
+                        StreamMessage::Error(error) => Some(Err(error)),
+                        StreamMessage::End => None,
                     },
                     Err(_cancelled) => None,
                 };
