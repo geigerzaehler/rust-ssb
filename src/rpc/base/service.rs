@@ -38,18 +38,15 @@ pub enum SinkError {
     Error(Error),
 }
 
-pub(super) type BoxEndpointStream = BoxStream<'static, Result<Body, Error>>;
-
-pub(super) type BoxEndpointSink = Pin<Box<dyn Sink<StreamMessage, Error = ()> + Send>>;
-
-pub(super) type BoxEndpoint = (BoxEndpointStream, BoxEndpointSink);
-
-type Handler<T> = Box<dyn Fn(Vec<serde_json::Value>) -> T + Send + 'static>;
+/// Error for duplex stream sinks that indicates that the sink has been closed and will not process
+/// any more messages.
+#[derive(Debug)]
+pub struct SinkClosed;
 
 #[derive(Default)]
 pub struct Service {
     async_handlers: HashMap<Vec<String>, Handler<BoxFuture<'static, AsyncResponse>>>,
-    stream_handlers: HashMap<Vec<String>, Handler<BoxEndpoint>>,
+    stream_handlers: HashMap<Vec<String>, Handler<(BoxEndpointStream, BoxEndpointSink)>>,
 }
 
 impl Service {
@@ -126,7 +123,7 @@ impl Service {
     ) where
         Args: serde::de::DeserializeOwned,
         Source: Stream<Item = Result<Body, Error>> + Send + 'static,
-        Sink_: Sink<StreamMessage, Error = ()> + Send + 'static,
+        Sink_: Sink<StreamMessage, Error = SinkClosed> + Send + 'static,
     {
         let method2 = method.to_string();
         self.stream_handlers.insert(
@@ -182,7 +179,7 @@ impl Service {
         &self,
         method: Vec<String>,
         args: Vec<serde_json::Value>,
-    ) -> BoxEndpoint {
+    ) -> (BoxEndpointStream, BoxEndpointSink) {
         match self.stream_handlers.get(&method) {
             Some(handler) => handler(args),
             None => {
@@ -208,7 +205,13 @@ impl std::fmt::Debug for Service {
     }
 }
 
-fn error_endpoint(error: Error) -> BoxEndpoint {
+pub(super) type BoxEndpointStream = BoxStream<'static, Result<Body, Error>>;
+
+pub(super) type BoxEndpointSink = Pin<Box<dyn Sink<StreamMessage, Error = SinkClosed> + Send>>;
+
+type Handler<T> = Box<dyn Fn(Vec<serde_json::Value>) -> T + Send + 'static>;
+
+fn error_endpoint(error: Error) -> (BoxEndpointStream, BoxEndpointSink) {
     let sink = futures::sink::drain().sink_map_err(|infallible| match infallible {});
     let source = futures::stream::once(async move { Err(error) });
     (source.boxed(), Box::pin(sink))
@@ -216,7 +219,7 @@ fn error_endpoint(error: Error) -> BoxEndpoint {
 
 fn sink_to_endpoint(
     sink: impl Sink<StreamMessage, Error = SinkError> + Send + 'static,
-) -> BoxEndpoint {
+) -> (BoxEndpointStream, BoxEndpointSink) {
     let (response_sender, response_receiver) =
         futures::channel::oneshot::channel::<Result<Body, Error>>();
     let source = crate::utils::OneshotStream::new(response_receiver);
@@ -230,16 +233,19 @@ fn sink_to_endpoint(
                 }
             })
         })
-        .sink_map_err(|err| match err {
-            SinkError::Done => drop(response_sender),
-            SinkError::Error(err) => response_sender.send(Err(err)).unwrap(),
+        .sink_map_err(|err| {
+            match err {
+                SinkError::Done => drop(response_sender),
+                SinkError::Error(err) => response_sender.send(Err(err)).unwrap(),
+            }
+            SinkClosed
         });
     (source.boxed(), Box::pin(duplex_sink))
 }
 
 fn stream_to_endpoint(
     source: impl Stream<Item = Result<Body, Error>> + Send + 'static,
-) -> BoxEndpoint {
+) -> (BoxEndpointStream, BoxEndpointSink) {
     let mut source = Box::pin(source);
     let mut done = false;
     let (peer_end_sender, mut peer_end_receiver) = futures::channel::oneshot::channel();
@@ -270,7 +276,7 @@ fn stream_to_endpoint(
     });
     (
         duplex_source.boxed(),
-        Box::pin(crate::utils::OneshotSink::new(peer_end_sender).sink_map_err(|_| ())),
+        Box::pin(crate::utils::OneshotSink::new(peer_end_sender).sink_map_err(|_| SinkClosed)),
     )
 }
 

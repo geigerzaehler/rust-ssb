@@ -2,7 +2,7 @@ use anyhow::Context;
 use futures::prelude::*;
 
 use super::packet::{Request, Response};
-use super::service::{BoxEndpoint, Error, Service, StreamMessage};
+use super::service::{BoxEndpointSink, BoxEndpointStream, Error, Service, StreamMessage};
 use super::stream_request::StreamRequest;
 
 pub async fn run(
@@ -56,9 +56,9 @@ impl RequestDispatcher {
                             .decode_json()
                             .context("Failed to parse stream request")?;
                         tracing::debug!(name = ?name.join("."), ?type_, "stream request");
-                        let source = self.service.handle_stream(name, args);
+                        let (source, sink) = self.service.handle_stream(name, args);
                         let stream_handle =
-                            StreamHandle::new(number, self.response_sender.clone(), source);
+                            StreamHandle::new(number, self.response_sender.clone(), source, sink);
                         self.streams.insert(number, stream_handle);
                     }
                 }
@@ -99,7 +99,8 @@ impl StreamHandle {
     fn new(
         stream_id: u32,
         response_sink: futures::channel::mpsc::Sender<Response>,
-        (source, sink): BoxEndpoint,
+        source: BoxEndpointStream,
+        sink: BoxEndpointSink,
     ) -> Self {
         let (incoming_sender, incoming_receiver) =
             futures::channel::mpsc::unbounded::<StreamMessage>();
