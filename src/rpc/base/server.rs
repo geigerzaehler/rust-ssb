@@ -1,26 +1,19 @@
 use anyhow::Context;
 use futures::prelude::*;
 
-use super::responder::{Responder, StreamSink};
-use super::service::{BoxEndpoint, Service};
-use crate::rpc::base::packet::{Request, Response};
-use crate::rpc::base::stream_request::StreamRequest;
-use crate::rpc::base::{Error, StreamMessage};
+use super::packet::{Request, Response};
+use super::service::{BoxEndpoint, Error, Service, StreamMessage};
+use super::stream_request::StreamRequest;
 
-pub async fn run<ResponseSink>(
+pub async fn run(
     service: Service,
     request_stream: impl Stream<Item = Request> + Unpin + 'static + Send,
-    response_sink: ResponseSink,
-) -> anyhow::Result<()>
-where
-    ResponseSink: Sink<Response> + Send + 'static,
-    ResponseSink::Error: std::error::Error + Send + Sync + 'static,
-{
+    response_sender: futures::channel::mpsc::Sender<Response>,
+) -> anyhow::Result<()> {
     let mut request_stream = request_stream;
-    let responder = Responder::new(response_sink);
     let mut request_dispatcher = RequestDispatcher {
         service,
-        responder,
+        response_sender,
         streams: std::collections::HashMap::new(),
     };
     while let Some(request) = request_stream.next().await {
@@ -31,7 +24,7 @@ where
 
 struct RequestDispatcher {
     service: Service,
-    responder: Responder,
+    response_sender: futures::channel::mpsc::Sender<Response>,
     streams: std::collections::HashMap<u32, StreamHandle>,
 }
 
@@ -45,46 +38,47 @@ impl RequestDispatcher {
                 args,
             } => {
                 let response_fut = self.service.handle_async(method, args);
-                let responder = self.responder.clone();
+                let mut response_sender = self.response_sender.clone();
                 async_std::task::spawn(async move {
                     let response = response_fut.await;
-                    responder
-                        .send(response.into_response(number))
-                        .await
-                        .unwrap();
+                    let result = response_sender.send(response.into_response(number)).await;
+                    if let Err(error) = result {
+                        tracing::warn!(response_id = ?number, ?error, "Failed to send response");
+                    }
                 });
             }
             Request::Stream { number, message } => match message {
                 StreamMessage::Data(body) => {
                     if let Some(stream) = self.streams.get_mut(&number) {
-                        stream.send(StreamMessage::Data(body));
+                        stream.incoming(StreamMessage::Data(body));
                     } else {
                         let StreamRequest { name, type_, args } = body
                             .decode_json()
                             .context("Failed to parse stream request")?;
-                        let responder = self.responder.clone();
                         tracing::debug!(name = ?name.join("."), ?type_, "stream request");
                         let source = self.service.handle_stream(name, args);
-                        let stream_handle = StreamHandle::new(responder.stream(number), source);
+                        let stream_handle =
+                            StreamHandle::new(number, self.response_sender.clone(), source);
                         self.streams.insert(number, stream_handle);
                     }
                 }
                 StreamMessage::Error(_) | StreamMessage::End => {
                     if let Some(mut stream) = self.streams.remove(&number) {
-                        stream.send(message);
+                        stream.incoming(message);
                     } else {
-                        let responder = self.responder.clone();
+                        let mut response_sender = self.response_sender.clone();
                         async_std::task::spawn(async move {
-                            let _ = responder
-                                .send_stream_message(
-                                    number,
+                            // We don’t care if the connection has been dropped
+                            let _ = response_sender
+                                .send(
                                     StreamMessage::Error(Error {
                                         name: "STREAM_DOES_NOT_EXIST".to_string(),
                                         message: format!(
                                             "Stream with ID {:?} does not exist",
                                             number
                                         ),
-                                    }),
+                                    })
+                                    .into_response(number),
                                 )
                                 .await;
                         });
@@ -96,44 +90,47 @@ impl RequestDispatcher {
     }
 }
 
+/// Handle for the dipsatcher to communicate with the stream created by [Service].
 struct StreamHandle {
-    input_sender: futures::channel::mpsc::UnboundedSender<StreamMessage>,
+    incoming_sender: futures::channel::mpsc::UnboundedSender<StreamMessage>,
 }
 
 impl StreamHandle {
-    fn new(responder: StreamSink, (source, sink): BoxEndpoint) -> Self {
-        let (input_sender, input_receiver) = futures::channel::mpsc::unbounded::<StreamMessage>();
+    fn new(
+        stream_id: u32,
+        response_sink: futures::channel::mpsc::Sender<Response>,
+        (source, sink): BoxEndpoint,
+    ) -> Self {
+        let (incoming_sender, incoming_receiver) =
+            futures::channel::mpsc::unbounded::<StreamMessage>();
 
         async_std::task::spawn(async move {
             let mut source = source;
+            let mut response_sink = response_sink;
             loop {
                 let item = source.next().await;
-                let result = match item {
-                    None => {
-                        let _ = responder.close().await;
-                        break;
-                    }
-                    Some(Ok(body)) => responder.send(body).await,
-                    Some(Err(error)) => {
-                        let _ = responder.error(error).await;
-                        break;
-                    }
+                let message = match item {
+                    None => StreamMessage::End,
+                    Some(Ok(body)) => StreamMessage::Data(body),
+                    Some(Err(error)) => StreamMessage::Error(error),
                 };
-                if result.is_err() {
+                let message_is_end = message.is_end();
+                let result = response_sink.send(message.into_response(stream_id)).await;
+                if result.is_err() || message_is_end {
                     break;
                 }
             }
         });
 
         async_std::task::spawn(async move {
-            let _ = input_receiver.map(Ok).forward(sink).await;
+            let _ = incoming_receiver.map(Ok).forward(sink).await;
         });
 
-        Self { input_sender }
+        Self { incoming_sender }
     }
 
-    fn send(&mut self, stream_message: StreamMessage) {
-        let _ = self.input_sender.unbounded_send(stream_message);
+    fn incoming(&mut self, stream_message: StreamMessage) {
+        let _ = self.incoming_sender.unbounded_send(stream_message);
     }
 }
 
@@ -405,15 +402,15 @@ mod test {
     }
 
     struct TestDispatcher {
-        request_sender: futures::channel::mpsc::UnboundedSender<Request>,
-        response_receiver: futures::channel::mpsc::UnboundedReceiver<Response>,
+        request_sender: futures::channel::mpsc::Sender<Request>,
+        response_receiver: futures::channel::mpsc::Receiver<Response>,
         run_handle: async_std::task::JoinHandle<Result<(), anyhow::Error>>,
     }
 
     impl TestDispatcher {
         fn new(service: Service) -> Self {
-            let (request_sender, request_receiver) = futures::channel::mpsc::unbounded();
-            let (response_sender, response_receiver) = futures::channel::mpsc::unbounded();
+            let (request_sender, request_receiver) = futures::channel::mpsc::channel(10);
+            let (response_sender, response_receiver) = futures::channel::mpsc::channel(10);
 
             let run_handle =
                 async_std::task::spawn(run(service, request_receiver, response_sender));

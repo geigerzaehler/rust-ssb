@@ -4,7 +4,7 @@ use futures::prelude::*;
 use super::client::Client;
 use super::packet::{Packet, Request, Response};
 use super::packet_stream::{NextPacketError, PacketStream};
-use super::server::Service;
+use super::Service;
 
 #[derive(Debug)]
 pub struct Endpoint {

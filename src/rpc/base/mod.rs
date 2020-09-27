@@ -24,8 +24,9 @@ pub use packet::Body;
 #[doc(inline)]
 pub use endpoint::Endpoint;
 
+mod service;
 #[doc(inline)]
-pub use server::{Service, SinkError};
+pub use service::{Service, SinkError};
 
 mod stream_message;
 #[doc(inline)]

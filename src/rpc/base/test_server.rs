@@ -2,7 +2,7 @@ use anyhow::Context;
 use futures::prelude::*;
 
 use super::endpoint::Endpoint;
-use super::server::{AsyncResponse, Body, Service, SinkError};
+use super::service::{AsyncResponse, Body, Service, SinkError};
 use super::{Error, StreamMessage};
 
 fn test_service() -> Service {
