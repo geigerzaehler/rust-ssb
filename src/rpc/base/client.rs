@@ -24,7 +24,9 @@ impl std::fmt::Debug for Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Client")
             .field("sink", &"Pin<Box<dyn Sink>>")
+            .field("next_request_number", &self.next_request_number)
             .field("pending_async_requests", &self.pending_async_requests)
+            .field("streams", &"Arc<CHashMap<_, _>>")
             .field("packet_reader_task", &self.packet_reader_handle)
             .finish()
     }
