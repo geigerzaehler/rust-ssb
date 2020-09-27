@@ -318,21 +318,21 @@ mod test {
             )
             .await;
         let responses = test_dispatcher.end().await;
-        assert_eq!(
-            responses,
-            vec![
-                StreamMessage::Error(Error {
-                    name: "STREAM_DOES_NOT_EXIST".to_string(),
-                    message: "Stream with ID 1 does not exist".to_string()
-                })
-                .into_response(1),
-                StreamMessage::Error(Error {
-                    name: "STREAM_DOES_NOT_EXIST".to_string(),
-                    message: "Stream with ID 2 does not exist".to_string()
-                })
-                .into_response(2)
-            ]
-        );
+        assert_eq!(responses.len(), 2);
+        assert!(responses.contains(
+            &StreamMessage::Error(Error {
+                name: "STREAM_DOES_NOT_EXIST".to_string(),
+                message: "Stream with ID 1 does not exist".to_string()
+            })
+            .into_response(1)
+        ));
+        assert!(responses.contains(
+            &StreamMessage::Error(Error {
+                name: "STREAM_DOES_NOT_EXIST".to_string(),
+                message: "Stream with ID 2 does not exist".to_string()
+            })
+            .into_response(2)
+        ));
     }
 
     #[async_std::test]
