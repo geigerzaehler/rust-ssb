@@ -13,7 +13,7 @@ pub async fn run<ResponseSink>(
     response_sink: ResponseSink,
 ) -> anyhow::Result<()>
 where
-    ResponseSink: Sink<Response> + Send + Unpin + Clone + 'static,
+    ResponseSink: Sink<Response> + Send + 'static,
     ResponseSink::Error: std::error::Error + Send + Sync + 'static,
 {
     let mut request_stream = request_stream;
