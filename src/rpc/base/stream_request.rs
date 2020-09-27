@@ -1,11 +1,12 @@
 use super::packet::{Body, Request};
 use super::stream_message::StreamMessage;
 
+/// Request to start a stream with the server
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct StreamRequest {
     pub name: Vec<String>,
     #[serde(rename = "type")]
-    pub type_: RequestType,
+    pub type_: StreamRequestType,
     pub args: Vec<serde_json::Value>,
 }
 
@@ -16,13 +17,16 @@ impl StreamRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RequestType {
+pub enum StreamRequestType {
+    /// Only the server sends messages
     Source,
+    /// Only the client sends messages
     Sink,
+    /// Both the server and the client send messages
     Duplex,
 }
 
-impl serde::Serialize for RequestType {
+impl serde::Serialize for StreamRequestType {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -36,7 +40,7 @@ impl serde::Serialize for RequestType {
     }
 }
 
-impl<'de> serde::Deserialize<'de> for RequestType {
+impl<'de> serde::Deserialize<'de> for StreamRequestType {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,

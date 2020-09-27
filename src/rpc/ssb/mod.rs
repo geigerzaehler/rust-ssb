@@ -77,9 +77,10 @@ impl Client {
             crate::rpc::base::AsyncResponse::Blob(_) => {
                 Err(Error::InvalidResponseType { type_: "blob" })
             }
-            crate::rpc::base::AsyncResponse::Error { name, message } => {
-                Err(Error::Rpc { name, message })
-            }
+            crate::rpc::base::AsyncResponse::Error(error) => Err(Error::Rpc {
+                name: error.name,
+                message: error.message,
+            }),
         }
     }
 
@@ -103,9 +104,10 @@ impl Client {
             crate::rpc::base::AsyncResponse::Blob(_) => {
                 Err(Error::InvalidResponseType { type_: "blob" })
             }
-            crate::rpc::base::AsyncResponse::Error { name, message } => {
-                Err(Error::Rpc { name, message })
-            }
+            crate::rpc::base::AsyncResponse::Error(error) => Err(Error::Rpc {
+                name: error.name,
+                message: error.message,
+            }),
         }
     }
 }

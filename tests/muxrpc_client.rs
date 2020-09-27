@@ -56,10 +56,7 @@ async fn echo_error() -> anyhow::Result<()> {
 
     assert_eq!(
         result,
-        ssb::rpc::base::AsyncResponse::Error {
-            name: "ERROR".to_string(),
-            message: "MSG".to_string()
-        }
+        ssb::rpc::base::AsyncResponse::Error(ssb::rpc::base::Error::new("ERROR", "MSG"))
     );
 
     Ok(())

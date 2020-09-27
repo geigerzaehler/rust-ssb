@@ -106,8 +106,8 @@ impl Call {
             crate::rpc::base::AsyncResponse::Blob(_data) => {
                 "Refusing to print binary data".to_string()
             }
-            crate::rpc::base::AsyncResponse::Error { name, message } => {
-                anyhow::bail!("RPC error \"{}\": {}", name, message)
+            crate::rpc::base::AsyncResponse::Error(error) => {
+                anyhow::bail!("RPC error \"{}\": {}", error.name, error.message)
             }
         };
         println!("{}", response);

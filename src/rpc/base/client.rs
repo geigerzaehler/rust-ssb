@@ -6,7 +6,7 @@ use std::sync::Arc;
 use super::error::Error;
 use super::packet::{Body, Request, Response};
 use super::stream_message::StreamMessage;
-use super::stream_request::{RequestType, StreamRequest};
+use super::stream_request::{StreamRequest, StreamRequestType};
 
 /// Client for an application agnostic RPC protocol described in the [Scuttlebutt
 /// Protocol Guide][ssb-prot].
@@ -92,7 +92,7 @@ impl Client {
                         if let Some(respond) = opt_respond {
                             // TODO handle error
                             respond
-                                .send(AsyncResponse::Error { name, message })
+                                .send(AsyncResponse::Error(Error { name, message }))
                                 .unwrap();
                         } else {
                             todo!("no response listener for error")
@@ -152,17 +152,19 @@ impl Client {
             .expect("Response channel dropped. Possible reuse of request number"))
     }
 
+    /// Send a request to the server to start a duplex stream.
     pub async fn start_duplex(
         &mut self,
         method: Vec<String>,
         args: Vec<serde_json::Value>,
     ) -> anyhow::Result<(BoxStreamSource, StreamSink)> {
-        self.start_stream(RequestType::Duplex, method, args).await
+        self.start_stream(StreamRequestType::Duplex, method, args)
+            .await
     }
 
     async fn start_stream(
         &mut self,
-        type_: RequestType,
+        type_: StreamRequestType,
         method: Vec<String>,
         args: Vec<serde_json::Value>,
     ) -> anyhow::Result<(BoxStreamSource, StreamSink)> {
@@ -189,7 +191,7 @@ impl Client {
     }
 }
 
-pub(super) type BoxStreamSource = futures::stream::BoxStream<'static, Result<Body, Error>>;
+pub type BoxStreamSource = futures::stream::BoxStream<'static, Result<Body, Error>>;
 
 type BoxRequestSink = Pin<Box<dyn Sink<Request, Error = anyhow::Error> + Send>>;
 
@@ -234,6 +236,10 @@ impl SharedRequestSink {
 }
 
 /// Send messages for a specific stream to the peer.
+///
+/// The sink must be explicitly closed by calling [StreamSink::close] or [StreamSink::end] to tell
+/// the server that the client will not send messages anymore. It is _not sufficient_ to drop
+/// [StreamSink].
 #[derive(Debug)]
 pub struct StreamSink {
     request_sender: SharedRequestSink,
@@ -266,7 +272,7 @@ pub enum AsyncResponse {
     Json(Vec<u8>),
     Blob(Vec<u8>),
     String(String),
-    Error { name: String, message: String },
+    Error(Error),
 }
 
 impl std::fmt::Debug for AsyncResponse {
@@ -278,7 +284,7 @@ impl std::fmt::Debug for AsyncResponse {
                 .debug_tuple("Json")
                 .field(&String::from_utf8_lossy(data))
                 .finish(),
-            Self::Error { name, message } => fmt
+            Self::Error(Error { name, message }) => fmt
                 .debug_struct("Error")
                 .field("name", name)
                 .field("message", message)

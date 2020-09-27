@@ -141,7 +141,7 @@ impl StreamHandle {
 mod test {
     use super::*;
     use crate::rpc::base::packet::Body;
-    use crate::rpc::base::stream_request::{RequestType, StreamRequest};
+    use crate::rpc::base::stream_request::{StreamRequest, StreamRequestType};
 
     #[async_std::test]
     async fn source_end_server() {
@@ -156,7 +156,7 @@ mod test {
             .send(
                 StreamRequest {
                     name: vec!["source".to_string()],
-                    type_: RequestType::Source,
+                    type_: StreamRequestType::Source,
                     args: vec![],
                 }
                 .into_request(1),
@@ -186,7 +186,7 @@ mod test {
             .send(
                 StreamRequest {
                     name: vec!["source".to_string()],
-                    type_: RequestType::Source,
+                    type_: StreamRequestType::Source,
                     args: vec![],
                 }
                 .into_request(1),
@@ -216,7 +216,7 @@ mod test {
             .send(
                 StreamRequest {
                     name: vec!["source".to_string()],
-                    type_: RequestType::Source,
+                    type_: StreamRequestType::Source,
                     args: vec![],
                 }
                 .into_request(1),
@@ -244,7 +244,7 @@ mod test {
             .send(
                 StreamRequest {
                     name: vec!["sink".to_string()],
-                    type_: RequestType::Source,
+                    type_: StreamRequestType::Source,
                     args: vec![],
                 }
                 .into_request(1),
@@ -274,7 +274,7 @@ mod test {
             .send(
                 StreamRequest {
                     name: vec!["sink".to_string()],
-                    type_: RequestType::Source,
+                    type_: StreamRequestType::Source,
                     args: vec![],
                 }
                 .into_request(1),
@@ -348,7 +348,7 @@ mod test {
             .send(
                 StreamRequest {
                     name: vec!["source".to_string()],
-                    type_: RequestType::Source,
+                    type_: StreamRequestType::Source,
                     args: vec![],
                 }
                 .into_request(1),
@@ -384,7 +384,7 @@ mod test {
             .send(
                 StreamRequest {
                     name: vec!["source".to_string()],
-                    type_: RequestType::Source,
+                    type_: StreamRequestType::Source,
                     args: vec![],
                 }
                 .into_request(1),
@@ -394,7 +394,7 @@ mod test {
             .send(
                 StreamRequest {
                     name: vec!["sink".to_string()],
-                    type_: RequestType::Source,
+                    type_: StreamRequestType::Source,
                     args: vec![],
                 }
                 .into_request(1),
