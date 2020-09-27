@@ -13,7 +13,7 @@ use super::stream_request::{StreamRequest, StreamRequestType};
 ///
 /// [ssb-prot]: https://ssbc.github.io/scuttlebutt-protocol-guide/#rpc-protocol
 pub struct Client {
-    sink: SharedRequestSink,
+    request_sink: BoxRequestSink,
     next_request_number: u32,
     pending_async_requests: Arc<CHashMap<u32, futures::channel::oneshot::Sender<AsyncResponse>>>,
     streams: Arc<CHashMap<u32, futures::channel::mpsc::UnboundedSender<Result<Body, Error>>>>,
@@ -33,11 +33,14 @@ impl std::fmt::Debug for Client {
 }
 
 impl Client {
-    pub fn new<RequestSink, Stream_>(request_sink: RequestSink, response_stream: Stream_) -> Self
+    pub fn new<RequestSink, ResponseStream>(
+        request_sink: RequestSink,
+        response_stream: ResponseStream,
+    ) -> Self
     where
-        RequestSink: Sink<Request> + Send + Unpin + 'static,
+        RequestSink: Sink<Request> + Send + Clone + Unpin + 'static,
         RequestSink::Error: std::error::Error + Send + Sync + 'static,
-        Stream_: Stream<Item = Response> + Send + Unpin + 'static,
+        ResponseStream: Stream<Item = Response> + Send + Unpin + 'static,
     {
         let pending_async_requests = Arc::new(CHashMap::new());
         let streams = Arc::new(CHashMap::new());
@@ -47,7 +50,7 @@ impl Client {
             Self::consume_responses(response_stream, &pending_async_requests2, &streams2).await
         });
         Self {
-            sink: SharedRequestSink::new(request_sink),
+            request_sink: Box::pin(request_sink.sink_map_err(anyhow::Error::from)),
             next_request_number: 1,
             pending_async_requests,
             streams,
@@ -143,7 +146,7 @@ impl Client {
         };
         let (sender, receiver) = futures::channel::oneshot::channel();
         self.pending_async_requests.insert(request_number, sender);
-        self.sink
+        self.request_sink
             .send(request)
             .await
             .map_err(|error| AsyncRequestError::Send { error })?;
@@ -171,7 +174,7 @@ impl Client {
         let request_number = self.next_request_number;
         self.next_request_number += 1;
 
-        self.sink
+        self.request_sink
             .send(
                 StreamRequest {
                     name: method,
@@ -186,52 +189,32 @@ impl Client {
             futures::channel::mpsc::unbounded();
         self.streams
             .insert(request_number, received_messages_sender);
-        let stream_sink = self.sink.stream(request_number);
+        let stream_sink = StreamSink {
+            request_sink: self.request_sink.dup(),
+            id: request_number,
+        };
         Ok((Box::pin(received_messages_receiver), stream_sink))
     }
 }
 
 pub type BoxStreamSource = futures::stream::BoxStream<'static, Result<Body, Error>>;
 
-type BoxRequestSink = Pin<Box<dyn Sink<Request, Error = anyhow::Error> + Send>>;
+type BoxRequestSink = Pin<Box<dyn ClonableRequestSink>>;
 
-/// Clonable [Sink] for [Request]s.
-#[derive(Debug, Clone)]
-struct SharedRequestSink {
-    sink: Arc<futures::lock::Mutex<BoxRequestSink>>,
+trait ClonableRequestSink
+where
+    Self: Sink<Request, Error = anyhow::Error> + Send,
+{
+    fn dup(&self) -> BoxRequestSink;
 }
 
-impl SharedRequestSink {
-    pub fn new<RequestSink>(request_sink: RequestSink) -> Self
-    where
-        RequestSink: Sink<Request> + Send + 'static,
-        RequestSink::Error: std::error::Error + Send + Sync + 'static,
-    {
-        Self {
-            sink: Arc::new(futures::lock::Mutex::new(Box::pin(
-                request_sink.sink_map_err(anyhow::Error::from),
-            ))),
-        }
-    }
-
-    fn stream(&self, id: u32) -> StreamSink {
-        StreamSink {
-            request_sender: self.clone(),
-            id,
-        }
-    }
-    async fn send(&self, request: Request) -> anyhow::Result<()> {
-        let mut inner = self.sink.lock().await;
-        inner.send(request).await?;
-        Ok(())
-    }
-
-    async fn send_stream_message(
-        &self,
-        stream_id: u32,
-        stream_message: StreamMessage,
-    ) -> anyhow::Result<()> {
-        self.send(stream_message.into_request(stream_id)).await
+impl<T> ClonableRequestSink for T
+where
+    T: Sink<Request, Error = anyhow::Error> + Send,
+    T: Clone + 'static,
+{
+    fn dup(&self) -> BoxRequestSink {
+        Box::pin(self.clone())
     }
 }
 
@@ -240,28 +223,35 @@ impl SharedRequestSink {
 /// The sink must be explicitly closed by calling [StreamSink::close] or [StreamSink::end] to tell
 /// the server that the client will not send messages anymore. It is _not sufficient_ to drop
 /// [StreamSink].
-#[derive(Debug)]
 pub struct StreamSink {
-    request_sender: SharedRequestSink,
+    request_sink: BoxRequestSink,
     id: u32,
 }
 
+impl std::fmt::Debug for StreamSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StreamSink")
+            .field("request_sink", &"BoxRequestSink")
+            .field("id", &self.id)
+            .finish()
+    }
+}
 impl StreamSink {
-    pub async fn send(&self, data: Body) -> anyhow::Result<()> {
-        self.request_sender
-            .send_stream_message(self.id, StreamMessage::Data(data))
-            .await
+    pub async fn send(&mut self, data: Body) -> anyhow::Result<()> {
+        self.send_message(StreamMessage::Data(data)).await
     }
 
-    pub async fn close(self) -> anyhow::Result<()> {
-        self.request_sender
-            .send_stream_message(self.id, StreamMessage::End)
-            .await
+    pub async fn close(mut self) -> anyhow::Result<()> {
+        self.send_message(StreamMessage::End).await
     }
 
-    pub async fn error(self, error: Error) -> anyhow::Result<()> {
-        self.request_sender
-            .send_stream_message(self.id, StreamMessage::Error(error))
+    pub async fn error(mut self, error: Error) -> anyhow::Result<()> {
+        self.send_message(StreamMessage::Error(error)).await
+    }
+
+    async fn send_message(&mut self, stream_message: StreamMessage) -> anyhow::Result<()> {
+        self.request_sink
+            .send(stream_message.into_request(self.id))
             .await
     }
 }

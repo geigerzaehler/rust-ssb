@@ -67,7 +67,7 @@ async fn duplex_add() {
     let _ = tracing_subscriber::fmt::init();
 
     let mut endpoint = connect_client().await.unwrap();
-    let (receive, send) = endpoint
+    let (receive, mut send) = endpoint
         .client()
         .start_duplex(
             vec!["duplexAdd".to_string()],
