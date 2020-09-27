@@ -101,23 +101,24 @@ impl Client {
                 Response::Stream { number, message } => match message {
                     StreamMessage::Data(body) => {
                         if let Some(stream) = streams.get_mut(&number) {
-                            // TODO handle error
-                            stream.unbounded_send(Ok(body)).unwrap();
+                            // We don’t care if the client user drops the source.
+                            let _ = stream.unbounded_send(Ok(body));
                         } else {
-                            todo!("now stream")
+                            tracing::warn!(stream_id = ?number, "received response for unknown stream");
                         }
                     }
                     StreamMessage::Error(error) => {
                         if let Some(stream) = streams.remove(&number) {
-                            println!("jo");
-                            // TODO handle error
-                            stream.unbounded_send(Err(error)).unwrap();
+                            // We don’t care if the client user drops the source.
+                            let _ = stream.unbounded_send(Err(error));
                         } else {
-                            todo!("now stream")
+                            tracing::warn!(stream_id = ?number, "received response for unknown stream");
                         }
                     }
                     StreamMessage::End => {
-                        streams.remove(&number);
+                        if streams.remove(&number).is_none() {
+                            tracing::warn!(stream_id = ?number, "received response for unknown stream");
+                        }
                     }
                 },
             }
