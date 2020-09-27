@@ -156,16 +156,16 @@ impl Client {
         &mut self,
         method: Vec<String>,
         args: Vec<serde_json::Value>,
-    ) -> (BoxStreamSource, BoxStreamSink) {
+    ) -> anyhow::Result<(BoxStreamSource, StreamSink)> {
         self.start_stream(RequestType::Duplex, method, args).await
     }
 
-    pub async fn start_stream(
+    async fn start_stream(
         &mut self,
         type_: RequestType,
         method: Vec<String>,
         args: Vec<serde_json::Value>,
-    ) -> (BoxStreamSource, StreamRequestSender) {
+    ) -> anyhow::Result<(BoxStreamSource, StreamSink)> {
         let request_number = self.next_request_number;
         self.next_request_number += 1;
 
@@ -178,19 +178,18 @@ impl Client {
                 }
                 .into_request(request_number),
             )
-            .await
-            .unwrap();
+            .await?;
 
-        let (peer_items_sender, peer_items_receiver) = futures::channel::mpsc::unbounded();
-        self.streams.insert(request_number, peer_items_sender);
-        let stream_request_sender = self.sink.stream(request_number);
-        (Box::pin(peer_items_receiver), stream_request_sender)
+        let (received_messages_sender, received_messages_receiver) =
+            futures::channel::mpsc::unbounded();
+        self.streams
+            .insert(request_number, received_messages_sender);
+        let stream_sink = self.sink.stream(request_number);
+        Ok((Box::pin(received_messages_receiver), stream_sink))
     }
 }
 
 pub(super) type BoxStreamSource = futures::stream::BoxStream<'static, Result<Body, Error>>;
-
-pub(super) type BoxStreamSink = StreamRequestSender;
 
 type BoxRequestSink = Pin<Box<dyn Sink<Request, Error = anyhow::Error> + Send>>;
 
@@ -213,8 +212,8 @@ impl SharedRequestSink {
         }
     }
 
-    fn stream(&self, id: u32) -> StreamRequestSender {
-        StreamRequestSender {
+    fn stream(&self, id: u32) -> StreamSink {
+        StreamSink {
             request_sender: self.clone(),
             id,
         }
@@ -234,13 +233,14 @@ impl SharedRequestSink {
     }
 }
 
+/// Send messages for a specific stream to the peer.
 #[derive(Debug)]
-pub struct StreamRequestSender {
+pub struct StreamSink {
     request_sender: SharedRequestSink,
     id: u32,
 }
 
-impl StreamRequestSender {
+impl StreamSink {
     pub async fn send(&self, data: Body) -> anyhow::Result<()> {
         self.request_sender
             .send_stream_message(self.id, StreamMessage::Data(data))

@@ -76,7 +76,8 @@ async fn duplex_add() {
             vec!["duplexAdd".to_string()],
             vec![serde_json::to_value(&1u32).unwrap()],
         )
-        .await;
+        .await
+        .unwrap();
 
     let inputs = 0..6u32;
     let inputs2 = inputs.clone();
