@@ -220,8 +220,8 @@ where
 
 /// Send messages for a specific stream to the peer.
 ///
-/// The sink must be explicitly closed by calling [StreamSink::close] or [StreamSink::end] to tell
-/// the server that the client will not send messages anymore. It is _not sufficient_ to drop
+/// The sink must be explicitly closed by calling [StreamSink::close] or [StreamSink::error] to
+/// tell the server that the client will not send messages anymore. It is _not sufficient_ to drop
 /// [StreamSink].
 pub struct StreamSink {
     request_sink: BoxRequestSink,
