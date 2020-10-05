@@ -16,7 +16,7 @@ required-features = ["test-server"]
 anyhow = "1.0"
 async-std = { version = "1.6.4", features = ["unstable" ] }
 async-trait = "0.1"
-base64 = "0.12"
+base64 = "0.13"
 bytes = "0.5"
 chashmap = "2.0"
 dirs = "3.0"
