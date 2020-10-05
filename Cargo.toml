@@ -43,8 +43,6 @@ async-pipe = { version = "0.1.3", features = ["futures"] }
 async-std = { version = "1.6", features = ["attributes" ] }
 duplexify = "1.1"
 goldenfile = "1.1"
-# Newer versions break the build of `duplexify`
-pin-project-lite = "=0.1.8"
 proptest = "0.10"
 proptest-attributes = { git = "https://github.com/thomaseizinger/proptest", rev = "db7f042e66ebbbe8ddb73068e610dc3946dacd15" }
 proptest-derive = "0.2"
