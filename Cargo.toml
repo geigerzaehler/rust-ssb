@@ -25,7 +25,7 @@ libsodium-sys = "0.2.5"
 never = "0.1"
 nix = "0.18"
 peg = "0.6.3"
-pin-project = "0.4"
+pin-project = "1.0"
 prettytable-rs = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
