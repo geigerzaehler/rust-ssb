@@ -610,8 +610,8 @@ mod test {
     }
 
     fn duplex_pipe() -> (impl AsyncRead + AsyncWrite, impl AsyncRead + AsyncWrite) {
-        let (a_writer, a_reader) = async_pipe::pipe();
-        let (b_writer, b_reader) = async_pipe::pipe();
+        let (a_writer, a_reader) = async_std::os::unix::net::UnixStream::pair().unwrap();
+        let (b_writer, b_reader) = async_std::os::unix::net::UnixStream::pair().unwrap();
 
         let a_to_b = duplexify::Duplex::new(b_reader, a_writer);
         let b_to_a = duplexify::Duplex::new(a_reader, b_writer);

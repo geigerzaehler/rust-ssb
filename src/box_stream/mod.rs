@@ -42,7 +42,7 @@ mod test {
         let _ = sodiumoxide::init();
         async_std::task::block_on(async move {
             let params = BoxCrypt::arbitrary();
-            let (writer, reader) = async_pipe::pipe();
+            let (writer, reader) = async_std::os::unix::net::UnixStream::pair().unwrap();
             let reader = Decrypt::new(reader, params.clone());
             let mut writer = Encrypt::new(writer, params.clone());
 
@@ -68,7 +68,7 @@ mod test {
         let _ = sodiumoxide::init();
         async_std::task::block_on(async move {
             let params = BoxCrypt::arbitrary();
-            let (raw_writer, raw_reader) = async_pipe::pipe();
+            let (raw_writer, raw_reader) = async_std::os::unix::net::UnixStream::pair().unwrap();
             let cutoff = cutoff.index(data.len());
             let raw_reader = raw_reader.take(cutoff as u64);
             let reader = Decrypt::new(raw_reader, params.clone());
