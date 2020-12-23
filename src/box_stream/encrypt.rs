@@ -29,8 +29,7 @@ impl<Writer: AsyncWrite> Encrypt<Writer> {
     ) -> Poll<Result<(), io::Error>> {
         let mut this = self.project();
         loop {
-            let written =
-                futures::ready!(this.writer.as_mut().poll_write(cx, &this.buffer.bytes()))?;
+            let written = futures::ready!(this.writer.as_mut().poll_write(cx, &*this.buffer))?;
             this.buffer.advance(written);
             if this.buffer.is_empty() {
                 return Poll::Ready(Ok(()));
