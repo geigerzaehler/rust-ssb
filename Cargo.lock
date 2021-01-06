@@ -1107,36 +1107,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "proptest"
-version = "0.10.1"
-source = "git+https://github.com/thomaseizinger/proptest?rev=db7f042e66ebbbe8ddb73068e610dc3946dacd15#db7f042e66ebbbe8ddb73068e610dc3946dacd15"
-dependencies = [
- "bit-set",
- "bitflags",
- "byteorder",
- "lazy_static",
- "num-traits",
- "quick-error",
- "rand 0.7.3",
- "rand_chacha",
- "rand_xorshift",
- "regex-syntax",
- "rusty-fork",
- "tempfile",
-]
-
-[[package]]
-name = "proptest-attributes"
-version = "0.1.0"
-source = "git+https://github.com/thomaseizinger/proptest?rev=db7f042e66ebbbe8ddb73068e610dc3946dacd15#db7f042e66ebbbe8ddb73068e610dc3946dacd15"
-dependencies = [
- "proc-macro2 1.0.24",
- "proptest 0.10.1 (git+https://github.com/thomaseizinger/proptest?rev=db7f042e66ebbbe8ddb73068e610dc3946dacd15)",
- "quote 1.0.8",
- "syn 1.0.55",
-]
-
-[[package]]
 name = "proptest-derive"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1494,14 +1464,14 @@ dependencies = [
  "peg",
  "pin-project 1.0.2",
  "prettytable-rs",
- "proptest 0.10.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "proptest-attributes",
+ "proptest",
  "proptest-derive",
  "serde",
  "serde_json",
  "socket2",
  "sodiumoxide",
  "structopt",
+ "test-strategy",
  "thiserror",
  "tracing",
  "tracing-futures",
@@ -1589,6 +1559,17 @@ dependencies = [
  "byteorder",
  "dirs 1.0.5",
  "winapi",
+]
+
+[[package]]
+name = "test-strategy"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2328963c69243416e811c88066d18f670792b2e36e17fa57f4b1a124f85d18a8"
+dependencies = [
+ "proc-macro2 1.0.24",
+ "quote 1.0.8",
+ "syn 1.0.55",
 ]
 
 [[package]]

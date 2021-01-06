@@ -1,6 +1,6 @@
 pub use proptest::prelude::*;
 pub use proptest::test_runner::TestCaseResult;
-pub use proptest_attributes::proptest;
+pub use test_strategy::proptest;
 
 #[macro_export]
 macro_rules! prop_reject {

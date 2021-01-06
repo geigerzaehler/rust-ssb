@@ -2,29 +2,25 @@
 use proptest::strategy::Strategy as _;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 pub struct Header {
     pub flags: HeaderFlags,
     pub body_type: BodyType,
-    #[cfg_attr(test, proptest(strategy = "1u32..=u32::MAX"))]
+    #[cfg_attr(test, strategy(1u32..=u32::MAX))]
     pub body_len: u32,
-    #[cfg_attr(
-        test,
-        proptest(strategy = "(1i32..=i32::MAX).prop_union(i32::MIN..=-1i32)")
-    )]
+    #[cfg_attr(test, strategy((1i32..=i32::MAX).prop_union(i32::MIN..=-1i32)))]
     pub request_number: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-#[cfg_attr(test, proptest(no_params))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 pub struct HeaderFlags {
     pub is_stream: bool,
     pub is_end_or_error: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+#[cfg_attr(test, derive(test_strategy::Arbitrary))]
 #[repr(u8)]
 pub enum BodyType {
     Binary = 0,
@@ -122,7 +118,8 @@ mod test {
     }
 
     #[proptest]
-    fn header_build_parse(mut header_data: [u8; Header::SIZE]) {
+    fn header_build_parse(header_data: [u8; Header::SIZE]) {
+        let mut header_data = header_data;
         header_data[0] &= 0b0000_1111;
         let header = match Header::parse(header_data) {
             Ok(Some(header)) => header,
@@ -132,7 +129,8 @@ mod test {
     }
 
     #[proptest]
-    fn header_invalid_type(mut header_data: [u8; Header::SIZE]) {
+    fn header_invalid_type(header_data: [u8; Header::SIZE]) {
+        let mut header_data = header_data;
         header_data[0] |= 0b0000_0011;
         let result = Header::parse(header_data);
         prop_assert_eq!(result, Err(HeaderParseError::InvalidBodyType { value: 3 }));
@@ -146,7 +144,8 @@ mod test {
     }
 
     #[proptest]
-    fn request_number_zero(mut header: Header) {
+    fn request_number_zero(header: Header) {
+        let mut header = header;
         header.request_number = 0;
         let err = Header::parse(header.build()).unwrap_err();
         prop_assert_eq!(err, HeaderParseError::RequestNumberZero);

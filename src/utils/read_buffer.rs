@@ -70,9 +70,8 @@ mod test {
     use super::*;
     use bytes::Buf as _;
     use proptest::prelude::*;
-    use proptest_attributes::proptest;
 
-    #[proptest]
+    #[test_strategy::proptest]
     fn put_twice(
         #[strategy(1..30usize)] input_size: usize,
         buffer_size: proptest::sample::Index,

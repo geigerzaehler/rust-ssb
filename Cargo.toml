@@ -14,7 +14,7 @@ required-features = ["test-server"]
 
 [dependencies]
 anyhow = "1.0"
-async-std = { version = "1.6.4", features = ["unstable" ] }
+async-std = { version = "1.6", features = ["unstable", "attributes"] }
 async-trait = "0.1"
 base64 = "0.13"
 bytes = "1"
@@ -40,9 +40,8 @@ tracing-subscriber = "0.2"
 
 [dev-dependencies]
 assert_cmd = "1.0.1"
-async-std = { version = "1.6", features = ["attributes" ] }
 duplexify = "1.1"
 goldenfile = "1.1"
 proptest = "0.10"
-proptest-attributes = { git = "https://github.com/thomaseizinger/proptest", rev = "db7f042e66ebbbe8ddb73068e610dc3946dacd15" }
 proptest-derive = "0.2"
+test-strategy = "0.1"
