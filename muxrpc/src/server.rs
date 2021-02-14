@@ -138,8 +138,8 @@ impl StreamHandle {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::rpc::base::packet::Body;
-    use crate::rpc::base::stream_request::{StreamRequest, StreamRequestType};
+    use crate::packet::Body;
+    use crate::stream_request::{StreamRequest, StreamRequestType};
 
     #[async_std::test]
     async fn source_end_server() {
