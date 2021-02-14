@@ -11,10 +11,8 @@ extern crate prettytable;
 #[macro_use]
 mod test_utils;
 
-mod box_stream;
 pub mod crypto;
 pub mod discovery;
-pub mod handshake;
 pub mod multi_address;
 pub mod rpc;
 pub mod secret_file;

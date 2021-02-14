@@ -24,24 +24,6 @@ pub mod secretbox {
 
 pub mod sign {
     pub use sodiumoxide::crypto::sign::*;
-
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct KeyPair {
-        pub public: PublicKey,
-        pub secret: SecretKey,
-    }
-
-    impl KeyPair {
-        pub fn new(public: PublicKey, secret: SecretKey) -> Self {
-            Self { public, secret }
-        }
-
-        /// See [gen_keypair].
-        pub fn gen() -> Self {
-            let (public, secret) = gen_keypair();
-            Self::new(public, secret)
-        }
-    }
 }
 
 pub fn share_key(

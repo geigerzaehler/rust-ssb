@@ -1,47 +1,23 @@
-//! Establish an encrypted connection via the handshake.
-//!
-//! See the [“Handshake”][protocol-handshake] section of the protocol guide.
-//!
-//! ```no_run
-//! # use ssb::handshake::*;
-//! # use futures::prelude::*;
-//! # #[async_std::main]
-//! # async fn main () -> Result<(), Box<dyn std::error::Error>> {
-//! let mut stream = async_std::net::TcpStream::connect("localhost:3000").await.unwrap();
-//! let network_identifier = [0u8; 32];
-//! let server_identity_pk = sodiumoxide::crypto::sign::gen_keypair().0;
-//! let client_identity = sodiumoxide::crypto::sign::gen_keypair();
-//! let client = Client::new(
-//!     &network_identifier,
-//!     &server_identity_pk,
-//!     &client_identity.0,
-//!     &client_identity.1,
-//! );
-//! let (mut encrypt, mut decrypt) = client.connect(stream).await?;
-//! encrypt.send(b"hello world".to_vec()).await?;
-//! # Ok(())
-//! # }
-//! ```
-//! [protocol-handshake]: https://ssbc.github.io/scuttlebutt-protocol-guide/#handshake
-
 // We allow this to align with the names used in the protocol guide.
 #![allow(non_snake_case)]
 
 use futures::prelude::*;
-use std::io;
 
-use crate::box_stream::{box_stream, BoxCrypt, BoxStreamParams, DecryptError};
 use crate::crypto;
+
+const HELLO_MESSAGE_LEN: usize = 64;
+const CLIENT_AUTHENTICATE_MESSAGE_LEN: usize = 112;
+const ACCEPT_CIPHER_MESSAGE_LEN: usize = 80;
 
 /// Errors returned when running the handshake protocol.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// Failed to read data from remote
     #[error("Failed to read data from remote")]
-    ReadFailed(#[source] async_std::io::Error),
+    ReadFailed(#[source] std::io::Error),
     /// Failed to write data to remote
     #[error("Failed to write data to remote")]
-    WriteFailed(#[source] async_std::io::Error),
+    WriteFailed(#[source] std::io::Error),
 
     /// Failed to verify `hello` message from remote
     #[error("Failed to verify `hello` message from remote")]
@@ -65,73 +41,102 @@ pub enum Error {
     AcceptSignatureInvalid,
 }
 
+/// Parameters to establish a secure connection as a client
+///
+/// ```no_run
+/// # use ssb_box_stream::*;
+/// # use futures::prelude::*;
+/// # #[async_std::main]
+/// # async fn main () -> Result<(), Box<dyn std::error::Error>> {
+/// let network_identifier = [0u8; 32];
+/// let server_identity_pk = sodiumoxide::crypto::sign::gen_keypair().0;
+/// let client_identity = sodiumoxide::crypto::sign::gen_keypair();
+/// let client = Client::new(
+///     &network_identifier,
+///     &server_identity_pk,
+///     &client_identity.0,
+///     &client_identity.1,
+/// );
+///
+/// let mut stream = async_std::net::TcpStream::connect("localhost:5555").await.unwrap();
+/// let (send, recv) = client.connect(stream).await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct Client {
-    endpoint: Endpoint,
-    server_identity: crypto::sign::PublicKey,
+    network_identifier: crypto::auth::Key,
+    identity_pk: crypto::sign::PublicKey,
+    identity_sk: crypto::sign::SecretKey,
+    server_identity_pk: crypto::sign::PublicKey,
 }
 
 impl Client {
     pub fn new(
         network_identifier: &[u8; 32],
-        server_identity: &crypto::sign::PublicKey,
-        identity_pk: &crypto::sign::PublicKey,
-        identity_sk: &crypto::sign::SecretKey,
+        server_identity_pk: &sodiumoxide::crypto::sign::PublicKey,
+        identity_pk: &sodiumoxide::crypto::sign::PublicKey,
+        identity_sk: &sodiumoxide::crypto::sign::SecretKey,
     ) -> Self {
-        let (session_pk, session_sk) = crypto::box_::gen_keypair();
         let network_identifier = crypto::auth::key_from_array(network_identifier);
         Self {
-            endpoint: Endpoint {
-                identity_pk: *identity_pk,
-                identity_sk: identity_sk.clone(),
-                session_pk,
-                session_sk,
-                network_identifier,
-            },
-            server_identity: *server_identity,
+            network_identifier,
+            identity_pk: *identity_pk,
+            identity_sk: identity_sk.clone(),
+            server_identity_pk: *server_identity_pk,
         }
     }
 
-    pub async fn connect(
+    /// Execute the handshake protocol for the client and return the encrypted connection.
+    pub async fn connect<Stream: AsyncWrite + AsyncRead + Unpin>(
         &self,
-        mut stream: impl AsyncRead + AsyncWrite + Unpin,
+        mut stream: Stream,
     ) -> Result<
         (
-            impl Sink<Vec<u8>, Error = io::Error>,
-            impl Stream<Item = Result<Vec<u8>, DecryptError>>,
+            crate::Encrypt<futures::io::WriteHalf<Stream>>,
+            crate::Decrypt<futures::io::ReadHalf<Stream>>,
         ),
         Error,
     > {
         let params = self.handshake(&mut stream).await?;
-        Ok(box_stream(stream, params))
+        Ok(crate::box_stream(stream, params))
     }
 
     #[tracing::instrument(
         name = "Client::handshake"
         skip(self, stream),
-        fields(server = base64::encode(&self.server_identity).as_str()))
+        fields(server = ?self.server_identity_pk.as_ref()))
     ]
     async fn handshake(
         &self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
-    ) -> Result<BoxStreamParams, Error> {
+    ) -> Result<crate::BoxStreamParams, Error> {
+        let (session_pk, session_sk) = crypto::box_::gen_keypair();
+        let endpoint = Endpoint {
+            identity_pk: self.identity_pk,
+            identity_sk: self.identity_sk.clone(),
+            session_pk,
+            session_sk,
+            network_identifier: self.network_identifier.clone(),
+        };
         stream
-            .write_all(&self.endpoint.hello_message())
+            .write_all(&endpoint.hello_message())
             .await
             .map_err(Error::WriteFailed)?;
 
         let hello_msg = read_hello_bytes(&mut stream).await?;
-        let server_session_pk = self.endpoint.hello_verify(hello_msg)?;
+        let server_session_pk = endpoint.hello_verify(hello_msg)?;
         tracing::debug!("received hello");
-        let authenticate = Authenticate::for_client(&self, &server_session_pk);
+        let authenticate =
+            Authenticate::for_client(&endpoint, &self.server_identity_pk, &server_session_pk);
 
-        let msg = authenticate_message(&self, &authenticate);
+        let msg = authenticate_message(&endpoint, &self.server_identity_pk, &authenticate);
         stream.write_all(&msg).await.map_err(Error::WriteFailed)?;
 
-        let accept = Accept::for_client(&self, authenticate);
+        let accept = Accept::for_client(&endpoint, &self.server_identity_pk, authenticate);
         let mut reply = [0u8; 80];
         stream.read_exact(&mut reply).await.map_err(|error| {
-            if error.kind() == io::ErrorKind::UnexpectedEof {
+            if error.kind() == std::io::ErrorKind::UnexpectedEof {
                 Error::AcceptConnectionClosed
             } else {
                 Error::ReadFailed(error)
@@ -140,55 +145,73 @@ impl Client {
         accept_message_verify(&self, &accept, reply)?;
 
         Ok(box_stream_params(
-            &self.endpoint,
+            &endpoint,
             &accept,
-            &self.server_identity,
+            &self.server_identity_pk,
             &server_session_pk,
         ))
     }
 }
 
-/// Parameters to execute a handshake from the server side
+/// Parameters to establish a secure connection as a server
+///
+/// ```no_run
+/// # use ssb_box_stream::*;
+/// # use futures::prelude::*;
+/// # #[async_std::main]
+/// # async fn main () -> Result<(), Box<dyn std::error::Error>> {
+/// let network_identifier = [0u8; 32];
+/// let server_identity = sodiumoxide::crypto::sign::gen_keypair();
+/// let server = Server::new(
+///     &network_identifier,
+///     &server_identity.0,
+///     &server_identity.1,
+/// );
+///
+/// let mut listener = async_std::net::TcpListener::bind("localhost:5555").await.unwrap();
+/// let (stream, _) = listener.accept().await?;
+///
+/// let (send, recv, client_key) = server.accept(stream).await?;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug, Clone)]
 pub struct Server {
-    endpoint: Endpoint,
+    network_identifier: crypto::auth::Key,
+    identity_pk: crypto::sign::PublicKey,
+    identity_sk: crypto::sign::SecretKey,
 }
 
 impl Server {
     pub fn new(
         network_identifier: &[u8; 32],
-        identity_pk: &crypto::sign::PublicKey,
-        identity_sk: &crypto::sign::SecretKey,
+        identity_pk: &sodiumoxide::crypto::sign::PublicKey,
+        identity_sk: &sodiumoxide::crypto::sign::SecretKey,
     ) -> Self {
-        let (session_pk, session_sk) = crypto::box_::gen_keypair();
         let network_identifier = crypto::auth::key_from_array(network_identifier);
         Self {
-            endpoint: Endpoint {
-                identity_pk: *identity_pk,
-                identity_sk: identity_sk.clone(),
-                session_pk,
-                session_sk,
-                network_identifier,
-            },
+            network_identifier,
+            identity_pk: *identity_pk,
+            identity_sk: identity_sk.clone(),
         }
     }
 
-    /// Execute the handshake protocol for the server and return encrypted connection
+    /// Execute the handshake protocol for the server and return the encrypted connection
     /// and the clients public identity key
-    pub async fn accept(
+    pub async fn accept<Stream: AsyncRead + AsyncWrite + Unpin>(
         &self,
-        stream: impl AsyncRead + AsyncWrite + Unpin,
+        stream: Stream,
     ) -> Result<
         (
-            impl Sink<Vec<u8>, Error = io::Error>,
-            impl Stream<Item = Result<Vec<u8>, DecryptError>>,
+            crate::Encrypt<futures::io::WriteHalf<Stream>>,
+            crate::Decrypt<futures::io::ReadHalf<Stream>>,
             crypto::sign::PublicKey,
         ),
         Error,
     > {
         let mut stream = stream;
         let (params, client_identity_pk) = self.handshake(&mut stream).await?;
-        let (sink, stream) = box_stream(stream, params);
+        let (sink, stream) = crate::box_stream(stream, params);
         Ok((sink, stream, client_identity_pk))
     }
 
@@ -198,27 +221,36 @@ impl Server {
     async fn handshake(
         &self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
-    ) -> Result<(BoxStreamParams, crypto::sign::PublicKey), Error> {
+    ) -> Result<(crate::BoxStreamParams, crypto::sign::PublicKey), Error> {
+        let (session_pk, session_sk) = crypto::box_::gen_keypair();
+        let endpoint = Endpoint {
+            identity_pk: self.identity_pk,
+            identity_sk: self.identity_sk.clone(),
+            session_pk,
+            session_sk,
+            network_identifier: self.network_identifier.clone(),
+        };
+
         let hello_msg = read_hello_bytes(&mut stream).await?;
-        let client_session_pk = self.endpoint.hello_verify(hello_msg)?;
+        let client_session_pk = endpoint.hello_verify(hello_msg)?;
         tracing::debug!("received hello");
-        let authenticate = Authenticate::for_server(&self, &client_session_pk);
+        let authenticate = Authenticate::for_server(&endpoint, &client_session_pk);
 
         stream
-            .write_all(&self.endpoint.hello_message())
+            .write_all(&endpoint.hello_message())
             .await
             .map_err(Error::WriteFailed)?;
 
-        let mut authenticate_msg = [0u8; 112];
+        let mut authenticate_msg = [0u8; CLIENT_AUTHENTICATE_MESSAGE_LEN];
         stream
             .read_exact(&mut authenticate_msg)
             .await
             .map_err(Error::ReadFailed)?;
 
         tracing::debug!("received authenticate");
-        let accept = authenticate.verify_and_accept(&self, &authenticate_msg)?;
+        let accept = authenticate.verify_and_accept(&endpoint, &authenticate_msg)?;
 
-        let accept_message = accept_message(&self, &accept);
+        let accept_message = accept_message(&endpoint, &accept);
         stream
             .write_all(&accept_message)
             .await
@@ -226,7 +258,7 @@ impl Server {
 
         Ok((
             box_stream_params(
-                &self.endpoint,
+                &endpoint,
                 &accept,
                 &accept.client_identity_pk,
                 &client_session_pk,
@@ -236,8 +268,10 @@ impl Server {
     }
 }
 
-async fn read_hello_bytes(mut stream: impl AsyncRead + Unpin) -> Result<[u8; 64], Error> {
-    let mut reply = [0u8; 64];
+async fn read_hello_bytes(
+    mut stream: impl AsyncRead + Unpin,
+) -> Result<[u8; HELLO_MESSAGE_LEN], Error> {
+    let mut reply = [0u8; HELLO_MESSAGE_LEN];
     stream
         .read_exact(&mut reply)
         .await
@@ -245,22 +279,22 @@ async fn read_hello_bytes(mut stream: impl AsyncRead + Unpin) -> Result<[u8; 64]
     Ok(reply)
 }
 
-fn authenticate_message(client: &Client, authenticate: &Authenticate) -> Vec<u8> {
-    let msg = authenticate.signature_payload(&client.server_identity);
-    let detached_signature_A = crypto::sign::sign_detached(&msg, &client.endpoint.identity_sk);
+fn authenticate_message(
+    client: &Endpoint,
+    server_identity_pk: &crypto::sign::PublicKey,
+    authenticate: &Authenticate,
+) -> Vec<u8> {
+    let msg = authenticate.signature_payload(server_identity_pk);
+    let detached_signature_A = crypto::sign::sign_detached(&msg, &client.identity_sk);
 
     let key = authenticate.message_key();
-    let msg = [
-        detached_signature_A.as_ref(),
-        client.endpoint.identity_pk.as_ref(),
-    ]
-    .concat();
+    let msg = [detached_signature_A.as_ref(), client.identity_pk.as_ref()].concat();
     crypto::secretbox::seal(&msg, &zero_nonce(), &key)
 }
 
-fn accept_message(server: &Server, shared_secrets: &Accept) -> Vec<u8> {
+fn accept_message(server: &Endpoint, shared_secrets: &Accept) -> Vec<u8> {
     let msg = shared_secrets.signature_payload();
-    let detached_signature_B = crypto::sign::sign_detached(&msg, &server.endpoint.identity_sk);
+    let detached_signature_B = crypto::sign::sign_detached(&msg, &server.identity_sk);
 
     crypto::secretbox::seal(
         detached_signature_B.as_ref(),
@@ -270,9 +304,9 @@ fn accept_message(server: &Server, shared_secrets: &Accept) -> Vec<u8> {
 }
 
 fn accept_message_verify(
-    params: &Client,
+    client: &Client,
     accept: &Accept,
-    cipher_msg: [u8; 80],
+    cipher_msg: [u8; ACCEPT_CIPHER_MESSAGE_LEN],
 ) -> Result<(), Error> {
     let detached_signature_B_payload =
         crypto::secretbox::open(&cipher_msg, &zero_nonce(), &accept.message_key())
@@ -281,7 +315,7 @@ fn accept_message_verify(
         crypto::sign::Signature::from_slice(&detached_signature_B_payload).unwrap();
 
     let msg = accept.signature_payload();
-    if crypto::sign::verify_detached(&detached_signature_B, &msg, &params.server_identity) {
+    if crypto::sign::verify_detached(&detached_signature_B, &msg, &client.server_identity_pk) {
         Ok(())
     } else {
         Err(Error::AcceptSignatureInvalid)
@@ -307,9 +341,9 @@ impl Endpoint {
         .concat()
     }
 
-    fn hello_verify(&self, msg: [u8; 64]) -> Result<crypto::box_::PublicKey, Error> {
-        let tag = crypto::auth::Tag::from_slice(&msg[0..32]).unwrap();
-        let payload = &msg[32..64];
+    fn hello_verify(&self, msg: [u8; HELLO_MESSAGE_LEN]) -> Result<crypto::box_::PublicKey, Error> {
+        let (tag, payload) = msg.split_at(crypto::auth::TAGBYTES);
+        let tag = crypto::auth::Tag::from_slice(tag).unwrap();
 
         if crypto::auth::verify(&tag, payload, &self.network_identifier) {
             let remote_session_public = crypto::box_::PublicKey::from_slice(payload).unwrap();
@@ -329,58 +363,64 @@ struct Authenticate {
 }
 
 impl Authenticate {
-    fn for_client(client: &Client, server_session_pk: &crypto::box_::PublicKey) -> Self {
-        let ab = crypto::share_key(&server_session_pk, &client.endpoint.session_sk).unwrap();
+    fn for_client(
+        client: &Endpoint,
+        server_identity_pk: &crypto::sign::PublicKey,
+        server_session_pk: &crypto::box_::PublicKey,
+    ) -> Self {
+        let ab = crypto::share_key(&server_session_pk, &client.session_sk).unwrap();
 
         let aB = crypto::share_key(
-            &crypto::sign_to_box_pk(&client.server_identity).unwrap(),
-            &client.endpoint.session_sk,
+            &crypto::sign_to_box_pk(server_identity_pk).unwrap(),
+            &client.session_sk,
         )
         .unwrap();
 
         Self {
             ab,
             aB,
-            network_identifier: client.endpoint.network_identifier.clone(),
+            network_identifier: client.network_identifier.clone(),
             server_session_pk: *server_session_pk,
         }
     }
-    fn for_server(server: &Server, client_session_pk: &crypto::box_::PublicKey) -> Self {
-        let ab = crypto::share_key(client_session_pk, &server.endpoint.session_sk).unwrap();
+    fn for_server(server: &Endpoint, client_session_pk: &crypto::box_::PublicKey) -> Self {
+        let ab = crypto::share_key(client_session_pk, &server.session_sk).unwrap();
 
         let aB = crypto::share_key(
             &client_session_pk,
-            &crypto::sign_to_box_sk(&server.endpoint.identity_sk).unwrap(),
+            &crypto::sign_to_box_sk(&server.identity_sk).unwrap(),
         )
         .unwrap();
 
         Self {
             ab,
             aB,
-            network_identifier: server.endpoint.network_identifier.clone(),
-            server_session_pk: server.endpoint.session_pk,
+            network_identifier: server.network_identifier.clone(),
+            server_session_pk: server.session_pk,
         }
     }
 
     /// Verifies a clients `authenticate` messages and return the [Accept] data.
     fn verify_and_accept(
         self,
-        server: &Server,
-        client_authenticate_msg: &[u8; 112],
+        server: &Endpoint,
+        client_authenticate_msg: &[u8; CLIENT_AUTHENTICATE_MESSAGE_LEN],
     ) -> Result<Accept, Error> {
         let key = self.message_key();
         let msg = crypto::secretbox::open(&client_authenticate_msg[..], &zero_nonce(), &key)
             .map_err(|()| Error::AuthenticateMessageDecryptFailed)?;
-        let detached_signature_A = crypto::sign::Signature::from_slice(&msg[0..64]).unwrap();
-        let client_identity_pk = crypto::sign::PublicKey::from_slice(&msg[64..96]).unwrap();
-        let signature_payload = self.signature_payload(&server.endpoint.identity_pk);
+        let (detached_signature_A, client_identity_pk) = msg.split_at(crypto::sign::SIGNATUREBYTES);
+        let detached_signature_A =
+            crypto::sign::Signature::from_slice(detached_signature_A).unwrap();
+        let client_identity_pk = crypto::sign::PublicKey::from_slice(client_identity_pk).unwrap();
+        let signature_payload = self.signature_payload(&server.identity_pk);
         if crypto::sign::verify_detached(
             &detached_signature_A,
             &signature_payload,
             &client_identity_pk,
         ) {
             let accept =
-                Accept::for_server(&server, self, &client_identity_pk, &detached_signature_A);
+                Accept::for_server(server, self, &client_identity_pk, &detached_signature_A);
             Ok(accept)
         } else {
             Err(Error::AuthenticateSignatureInvalid)
@@ -420,38 +460,42 @@ struct Accept {
 }
 
 impl Accept {
-    fn for_client(client: &Client, authenticate: Authenticate) -> Self {
+    fn for_client(
+        client: &Endpoint,
+        server_identity_pk: &crypto::sign::PublicKey,
+        authenticate: Authenticate,
+    ) -> Self {
         let Ab = crypto::share_key(
             &authenticate.server_session_pk,
-            &crypto::sign_to_box_sk(&client.endpoint.identity_sk).unwrap(),
+            &crypto::sign_to_box_sk(&client.identity_sk).unwrap(),
         )
         .unwrap();
 
         let msg = [
-            client.endpoint.network_identifier.as_ref(),
-            client.server_identity.as_ref(),
+            client.network_identifier.as_ref(),
+            server_identity_pk.as_ref(),
             crypto::hash(&authenticate.ab).as_ref(),
         ]
         .concat();
-        let detached_signature_A = crypto::sign::sign_detached(&msg, &client.endpoint.identity_sk);
+        let detached_signature_A = crypto::sign::sign_detached(&msg, &client.identity_sk);
 
         Self {
             authenticate,
             Ab,
             detached_signature_A,
-            client_identity_pk: client.endpoint.identity_pk,
+            client_identity_pk: client.identity_pk,
         }
     }
 
     fn for_server(
-        server: &Server,
+        server: &Endpoint,
         authenticate: Authenticate,
         client_identity_pk: &crypto::sign::PublicKey,
         detached_signature_A: &crypto::sign::Signature,
     ) -> Self {
         let Ab = crypto::share_key(
             &crypto::sign_to_box_pk(&client_identity_pk).unwrap(),
-            &server.endpoint.session_sk,
+            &server.session_sk,
         )
         .unwrap();
 
@@ -493,16 +537,16 @@ fn box_stream_params(
     accept: &Accept,
     remote_identity_pk: &crypto::sign::PublicKey,
     remote_session_pk: &crypto::box_::PublicKey,
-) -> BoxStreamParams {
-    BoxStreamParams {
-        encrypt: BoxCrypt {
-            key: box_stream_key(&accept, remote_identity_pk),
-            nonce: box_stream_nonce(local, remote_session_pk),
-        },
-        decrypt: BoxCrypt {
-            key: box_stream_key(&accept, &local.identity_pk),
-            nonce: box_stream_nonce(local, &local.session_pk),
-        },
+) -> crate::BoxStreamParams {
+    crate::BoxStreamParams {
+        send: crate::cipher::Params::new(
+            box_stream_key(&accept, remote_identity_pk),
+            box_stream_nonce(local, remote_session_pk),
+        ),
+        receive: crate::cipher::Params::new(
+            box_stream_key(&accept, &local.identity_pk),
+            box_stream_nonce(local, &local.session_pk),
+        ),
     }
 }
 
@@ -566,8 +610,8 @@ mod test {
         let client_params = client_result.unwrap();
         let (server_params, client_identity_pk) = server_result.unwrap();
 
-        assert_eq!(client_params.encrypt, server_params.decrypt);
-        assert_eq!(client_params.decrypt, server_params.encrypt);
+        assert_eq!(client_params.send, server_params.receive);
+        assert_eq!(client_params.receive, server_params.send);
         assert_eq!(client_identity_pk, client_identity.0);
     }
 
@@ -598,17 +642,15 @@ mod test {
                 result
             });
 
-        match client_result {
-            Err(Error::AcceptConnectionClosed) => (),
-            other => panic!("unexpected result {:?}", other),
-        }
+        assert!(matches!(client_result, Err(Error::AcceptConnectionClosed)));
 
-        match server_result {
-            Err(Error::AuthenticateMessageDecryptFailed) => (),
-            other => panic!("unexpected result {:?}", other),
-        }
+        assert!(matches!(
+            server_result,
+            Err(Error::AuthenticateMessageDecryptFailed)
+        ));
     }
 
+    /// Create a pair of connected read-write pipes
     fn duplex_pipe() -> (impl AsyncRead + AsyncWrite, impl AsyncRead + AsyncWrite) {
         let (a_writer, a_reader) = async_std::os::unix::net::UnixStream::pair().unwrap();
         let (b_writer, b_reader) = async_std::os::unix::net::UnixStream::pair().unwrap();
