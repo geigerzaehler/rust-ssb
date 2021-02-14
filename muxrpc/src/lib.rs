@@ -14,6 +14,7 @@ mod server;
 mod stream_request;
 #[cfg(any(test, feature = "test-server"))]
 pub mod test_server;
+mod utils;
 
 #[doc(inline)]
 pub use client::{AsyncRequestError, AsyncResponse, Client};
