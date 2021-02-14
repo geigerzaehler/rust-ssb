@@ -102,11 +102,6 @@ impl Client {
         Ok(crate::box_stream(stream, params))
     }
 
-    #[tracing::instrument(
-        name = "Client::handshake"
-        skip(self, stream),
-        fields(server = ?self.server_identity_pk.as_ref()))
-    ]
     async fn handshake(
         &self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
@@ -126,7 +121,6 @@ impl Client {
 
         let hello_msg = read_hello_bytes(&mut stream).await?;
         let server_session_pk = endpoint.hello_verify(hello_msg)?;
-        tracing::debug!("received hello");
         let authenticate =
             Authenticate::for_client(&endpoint, &self.server_identity_pk, &server_session_pk);
 
@@ -217,7 +211,6 @@ impl Server {
 
     /// Execute the handshake protocol for the server and return the box stream
     /// parameters and the clients public identity key
-    #[tracing::instrument(name = "Server::handshake", skip(self, stream))]
     async fn handshake(
         &self,
         mut stream: impl AsyncRead + AsyncWrite + Unpin,
@@ -233,7 +226,6 @@ impl Server {
 
         let hello_msg = read_hello_bytes(&mut stream).await?;
         let client_session_pk = endpoint.hello_verify(hello_msg)?;
-        tracing::debug!("received hello");
         let authenticate = Authenticate::for_server(&endpoint, &client_session_pk);
 
         stream
@@ -247,7 +239,6 @@ impl Server {
             .await
             .map_err(Error::ReadFailed)?;
 
-        tracing::debug!("received authenticate");
         let accept = authenticate.verify_and_accept(&endpoint, &authenticate_msg)?;
 
         let accept_message = accept_message(&endpoint, &accept);
@@ -585,7 +576,6 @@ mod test {
 
     #[async_std::test]
     async fn run() {
-        let _ = tracing_subscriber::fmt::try_init();
         let _ = sodiumoxide::init();
 
         let (mut client_stream, mut server_stream) = duplex_pipe();

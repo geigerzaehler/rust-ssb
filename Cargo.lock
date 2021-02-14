@@ -1520,8 +1520,6 @@ dependencies = [
  "sodiumoxide",
  "test-strategy",
  "thiserror",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
