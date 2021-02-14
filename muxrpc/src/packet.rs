@@ -364,9 +364,9 @@ fn parse_stream_message(
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::*;
+    use proptest::prelude::*;
 
-    #[proptest]
+    #[test_strategy::proptest]
     fn packet_build_parse(packet: Packet) {
         let (header, body) = packet.clone().build_raw().header_and_body();
         let packet2 = Packet::parse(header, body)?;

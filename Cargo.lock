@@ -798,8 +798,13 @@ dependencies = [
  "async-std",
  "bytes 1.0.1",
  "futures",
+ "pin-project 1.0.5",
+ "proptest",
+ "proptest-derive",
  "serde",
  "serde_json",
+ "test-strategy",
+ "thiserror",
  "tracing",
  "tracing-subscriber",
 ]

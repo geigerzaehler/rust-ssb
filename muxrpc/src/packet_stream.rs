@@ -1,11 +1,11 @@
 //! Provides [PacketStream] for parsing RPC packets from a byte stream.
 
+use bytes::BufMut as _;
 use futures::prelude::*;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use super::packet::{Header, HeaderParseError, Packet, PacketParseError};
-use crate::utils::ReadBuffer;
 
 #[derive(Debug, thiserror::Error)]
 /// Error receiving an RPC [Packet].
@@ -87,14 +87,19 @@ where
 /// Call [PacketReader::put] repeatedly until a [Packet] or an error is returned.
 #[derive(Debug)]
 enum PacketReader {
-    ReadingHeader { buffer: ReadBuffer },
-    ReadingBody { header: Header, buffer: ReadBuffer },
+    ReadingHeader {
+        buffer: bytes::BytesMut,
+    },
+    ReadingBody {
+        header: Header,
+        buffer: bytes::BytesMut,
+    },
 }
 
 impl PacketReader {
     fn new() -> Self {
         Self::ReadingHeader {
-            buffer: ReadBuffer::new(Header::SIZE),
+            buffer: bytes::BytesMut::with_capacity(Header::SIZE),
         }
     }
 
@@ -110,7 +115,7 @@ impl PacketReader {
             match self {
                 Self::ReadingHeader { buffer } => {
                     use std::convert::TryInto as _;
-                    let header_data = buffer.put(&mut data)?;
+                    let header_data = buffer.put(&mut data);
                     // .try_into() is guaranteed to not fail since the buffer
                     // holds exactly Header::SIZE bytes.
                     let header_data = header_data.as_slice().try_into().unwrap();
@@ -131,11 +136,11 @@ impl PacketReader {
 
                     *self = Self::ReadingBody {
                         header,
-                        buffer: ReadBuffer::new(header.body_len as usize),
+                        buffer: bytes::BytesMut::with_capacity(header.body_len as usize),
                     };
                 }
                 Self::ReadingBody { header, buffer } => {
-                    let body_data = buffer.put(&mut data)?;
+                    let body_data = buffer.put(&mut data);
                     let packet_result = match Packet::parse(*header, body_data) {
                         Ok(packet) => Ok(Some(packet)),
                         Err(err) => Err(NextPacketError::PacketParse(err)),
@@ -158,9 +163,9 @@ impl PacketReader {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::*;
+    use proptest::prelude::*;
 
-    #[proptest]
+    #[test_strategy::proptest]
     fn read_packets(
         #[strategy(proptest::collection::vec(any::<Packet>(), 0..10))] packets: Vec<Packet>,
         chunks: proptest::sample::Index,

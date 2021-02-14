@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::Context as _;
 use futures::prelude::*;
 
 use super::packet::{Request, Response};
