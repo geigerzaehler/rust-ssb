@@ -33,15 +33,14 @@ jobs:
     - name: "docs (nightly)"
       <<: *rust
       rust: nightly
-      script:
-        - RUSTDOCFLAGS="-D intra-doc-link-resolution-failure" cargo doc --no-deps --document-private-items
+      script: ./scripts/build-docs.sh
 
     - name: "muxrpc-test-suite"
       language: node
       node_js: 12
       cache: yarn
       before_install:
-        - cd muxrpc-test-suite
+        - cd ssb/muxrpc-test-suite
       install:
         - yarn --frozen-lockfile install
       script:

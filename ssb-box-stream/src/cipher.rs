@@ -1,34 +1,60 @@
-use crate::crypto;
 use std::convert::{TryFrom as _, TryInto as _};
 
-pub const BOXED_HEADER_SIZE: usize = 34;
-pub const HEADER_SIZE: usize = 18;
-pub const GOODBYE_HEADER: [u8; HEADER_SIZE] = [0u8; HEADER_SIZE];
+use crate::crypto;
 
+/// Size of the encrypted and authenticated header
+pub(crate) const BOXED_HEADER_SIZE: usize = 34;
+
+/// Size of the plain text header.
+pub(crate) const HEADER_SIZE: usize = 18;
+
+/// The plain-text packet that indicates the end of the packet stream.
+pub(crate) const GOODBYE_PACKET: [u8; HEADER_SIZE] = [0u8; HEADER_SIZE];
+
+/// Maximum size of the payload of a packet
+pub(crate) const MAX_PACKET_SIZE_BYTES: u16 = 4 * 1024;
+
+/// Parameters for encrypting or decrypting a sequence of packets
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BoxCrypt {
-    pub key: crypto::secretbox::Key,
-    pub nonce: crypto::secretbox::Nonce,
+pub struct Params {
+    key: sodiumoxide::crypto::secretbox::Key,
+    nonce: sodiumoxide::crypto::secretbox::Nonce,
+}
+
+impl Params {
+    pub fn new(key: crypto::secretbox::Key, nonce: crypto::secretbox::Nonce) -> Self {
+        Self { key, nonce }
+    }
 }
 
 #[cfg(test)]
-impl BoxCrypt {
-    pub fn arbitrary() -> BoxCrypt {
-        BoxCrypt {
+impl Params {
+    pub fn arbitrary() -> Params {
+        Params {
             key: crypto::secretbox::gen_key(),
             nonce: crypto::secretbox::gen_nonce(),
         }
     }
 }
 
-impl BoxCrypt {
-    pub(super) fn encrypt(&mut self, body: Packet) -> Vec<u8> {
-        let body_len_bytes = (body.len() as u16).to_be_bytes();
+impl Params {
+    /// Encrypt a payload and return the encrypted packet.
+    ///
+    /// Panics if `payload` size exceeds [MAX_PACKET_SIZE_BYTES].
+    pub(crate) fn encrypt(&mut self, mut dst: impl bytes::BufMut, data: &[u8]) {
+        for payload in data.chunks(MAX_PACKET_SIZE_BYTES as usize) {
+            self.encrypt_one(&mut dst, payload);
+        }
+    }
+
+    fn encrypt_one(&mut self, mut dst: impl bytes::BufMut, payload: &[u8]) {
+        assert!(payload.len() <= MAX_PACKET_SIZE_BYTES as usize);
+        let body_len_bytes = (payload.len() as u16).to_be_bytes();
 
         let header_nonce = self.nonce;
         let body_nonce = nonce_increment_be(&header_nonce);
 
-        let mut encrypted_body = body.0;
+        let mut encrypted_body = Vec::from(payload);
         let body_tag =
             crypto::secretbox::seal_detached(encrypted_body.as_mut_slice(), &body_nonce, &self.key);
 
@@ -37,23 +63,26 @@ impl BoxCrypt {
 
         self.nonce = nonce_increment_be(&body_nonce);
 
-        let mut package = boxed_header;
-        package.extend_from_slice(&encrypted_body);
-        package
+        dst.put(boxed_header.as_ref());
+        dst.put(encrypted_body.as_ref());
     }
 
-    pub(super) fn goodbye(&mut self) -> Vec<u8> {
+    pub(crate) fn goodbye(&mut self) -> Vec<u8> {
         let header_nonce = self.nonce;
-        crypto::secretbox::seal(&GOODBYE_HEADER, &header_nonce, &self.key)
+        crypto::secretbox::seal(&GOODBYE_PACKET, &header_nonce, &self.key)
     }
 
-    pub(super) fn decrypt_head(
+    /// Decrypt a packet header. If successful, returns the length of the packet body and the
+    /// authentication tag.
+    ///
+    /// Errors if the header cannot be decrypted or authenticated.
+    pub(crate) fn decrypt_header(
         &mut self,
         boxed_header: &[u8; BOXED_HEADER_SIZE],
     ) -> Result<Option<(u16, crypto::secretbox::Tag)>, ()> {
         let header_nonce = self.nonce;
         let header = crypto::secretbox::open(boxed_header, &header_nonce, &self.key)?;
-        if header[..] == GOODBYE_HEADER[..] {
+        if header[..] == GOODBYE_PACKET[..] {
             return Ok(None);
         }
 
@@ -63,7 +92,10 @@ impl BoxCrypt {
         Ok(Some((body_len, body_tag)))
     }
 
-    pub(super) fn decrypt_body(
+    /// Decrypt and authenticate a packet body.
+    ///
+    /// Errors if the header cannot be decrypted or authenticated.
+    pub(crate) fn decrypt_body(
         &mut self,
         tag: &crypto::secretbox::Tag,
         cipher_body: &[u8],
@@ -73,36 +105,6 @@ impl BoxCrypt {
         crypto::secretbox::open_detached(&mut body, &tag, &body_nonce, &self.key)?;
         self.nonce = nonce_increment_be(&body_nonce);
         Ok(body)
-    }
-}
-
-pub struct Packet(Vec<u8>);
-
-impl Packet {
-    const MAX_SIZE_BYTES: u16 = 4 * 1024;
-
-    pub(super) fn build(data: &[u8]) -> Vec<Packet> {
-        data.chunks(Self::MAX_SIZE_BYTES as usize)
-            .filter_map(|data| {
-                if data.is_empty() {
-                    None
-                } else {
-                    Some(Packet(Vec::from(data)))
-                }
-            })
-            .collect()
-    }
-
-    fn len(&self) -> u16 {
-        self.0.len() as u16
-    }
-}
-
-impl std::ops::Deref for Packet {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
@@ -129,7 +131,7 @@ fn increment_be(bytes: &mut [u8]) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::*;
+    use proptest::prelude::*;
 
     #[test]
     fn increment_be_u64() {
@@ -148,35 +150,34 @@ mod test {
         assert_eq!(0, u64::from_be_bytes(max_bytes))
     }
 
-    #[proptest]
-    fn box_crypt_roundtrip(messages: Vec<Vec<u8>>) {
+    #[test_strategy::proptest]
+    fn box_crypt_roundtrip(payloads: Vec<Vec<u8>>) {
         let _ = sodiumoxide::init();
-        let mut decrypt = BoxCrypt::arbitrary();
+        let mut decrypt = Params::arbitrary();
         let mut encrypt = decrypt.clone();
 
-        for message in messages {
-            if message.is_empty() {
+        for payload in payloads {
+            if payload.is_empty() {
                 continue;
             }
-            let packet = Packet::build(&message).pop().unwrap();
-            let message = Vec::from(&*packet);
-            let cipher_text = encrypt.encrypt(packet);
+            let mut cipher_text = bytes::BytesMut::new();
+            encrypt.encrypt(&mut cipher_text, &payload);
 
             let mut boxed_header = [0u8; BOXED_HEADER_SIZE];
             boxed_header.copy_from_slice(&cipher_text[0..BOXED_HEADER_SIZE]);
-            let (body_len, body_tag) = decrypt.decrypt_head(&boxed_header).unwrap().unwrap();
+            let (body_len, body_tag) = decrypt.decrypt_header(&boxed_header).unwrap().unwrap();
 
             let cipher_body = &cipher_text[BOXED_HEADER_SIZE..];
             prop_assert_eq!(body_len as usize, cipher_body.len());
 
             let msg_out = decrypt.decrypt_body(&body_tag, cipher_body).unwrap();
-            prop_assert_eq!(message, msg_out);
+            prop_assert_eq!(payload, msg_out);
         }
 
         let goodbye = encrypt.goodbye();
         let mut boxed_header = [0u8; BOXED_HEADER_SIZE];
         boxed_header.copy_from_slice(&goodbye[0..BOXED_HEADER_SIZE]);
-        let result = decrypt.decrypt_head(&boxed_header).unwrap();
+        let result = decrypt.decrypt_header(&boxed_header).unwrap();
         prop_assert!(result.is_none());
     }
 }

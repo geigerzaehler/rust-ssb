@@ -1496,11 +1496,31 @@ dependencies = [
  "serde_json",
  "socket2",
  "sodiumoxide",
+ "ssb-box-stream",
  "structopt",
  "test-strategy",
  "thiserror",
  "tracing",
  "tracing-futures",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "ssb-box-stream"
+version = "0.2.0"
+dependencies = [
+ "async-std",
+ "bytes 1.0.1",
+ "duplexify",
+ "futures",
+ "libsodium-sys",
+ "pin-project 1.0.5",
+ "proptest",
+ "proptest-derive",
+ "sodiumoxide",
+ "test-strategy",
+ "thiserror",
+ "tracing",
  "tracing-subscriber",
 ]
 

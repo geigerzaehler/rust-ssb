@@ -126,18 +126,16 @@ impl Packet {
             let response = if header.flags.is_stream {
                 let message = parse_stream_message(&header.flags, body)?;
                 Response::Stream { number, message }
-            } else {
-                if header.flags.is_end_or_error {
-                    let json = body.into_json()?;
-                    let error = parse_error_json(&json)?;
-                    Response::AsyncErr {
-                        number,
-                        name: error.name,
-                        message: error.message,
-                    }
-                } else {
-                    Response::AsyncOk { number, body }
+            } else if header.flags.is_end_or_error {
+                let json = body.into_json()?;
+                let error = parse_error_json(&json)?;
+                Response::AsyncErr {
+                    number,
+                    name: error.name,
+                    message: error.message,
                 }
+            } else {
+                Response::AsyncOk { number, body }
             };
             Packet::Response(response)
         };

@@ -16,8 +16,7 @@ At the moment the functionality is limited but will be extended.
 
 ## Features
 
-- [x] [Handshake](./src/handshake.rs)
-- [x] [Box stream](./src/box_stream/mod.rs)
+- [x] [Handshake and box stream](./box_stream)
 - [ ] [RPC](https://ssbc.github.io/scuttlebutt-protocol-guide/#rpc-protocol)
 - [ ] [Feeds](https://ssbc.github.io/scuttlebutt-protocol-guide/#feeds)
 - [ ] [LAN discovery](https://ssbc.github.io/scuttlebutt-protocol-guide/#discovery)
