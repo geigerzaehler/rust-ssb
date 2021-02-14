@@ -607,7 +607,6 @@ mod test {
 
     #[async_std::test]
     async fn client_with_invalid_server_key() {
-        let _ = tracing_subscriber::fmt::try_init();
         let _ = sodiumoxide::init();
 
         let (mut client_stream, mut server_stream) = duplex_pipe();
