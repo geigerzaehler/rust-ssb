@@ -15,7 +15,7 @@ default = []
 test-server = ["futures_codec"]
 
 [[example]]
-name = "server"
+name = "test_server"
 required-features = ["test-server"]
 
 [dependencies]
