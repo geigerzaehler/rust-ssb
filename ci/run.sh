@@ -9,12 +9,12 @@ nvm use v12
 cargo clippy --locked --all-targets --all-features -- --deny warnings
 
 (
-  cd muxrpc
+  cd ssb
   DETACH=true ./tests/ssb-server.sh
-  (
-      cd muxrpc-test-suite
-      yarn --frozen-lockfile install
-  )
-  node muxrpc-test-suite/server.js &
+)
+(
+  cd muxrpc/muxrpc-test-suite
+  yarn --frozen-lockfile install
+  node server.js &
 )
 RUST_LOG=debug RUST_BACKTRACE=1 cargo test --all-targets --all-features
