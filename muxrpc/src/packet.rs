@@ -1,8 +1,8 @@
-use super::header::BodyType;
+use crate::header::BodyType;
 
-use super::error::Error;
-pub use super::header::{Header, HeaderFlags, HeaderParseError};
-use super::stream_message::StreamMessage;
+use crate::error::Error;
+pub use crate::header::{Header, HeaderFlags, HeaderParseError};
+use crate::stream_message::StreamMessage;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
@@ -279,6 +279,7 @@ pub enum BodyDecodeError {
     ),
 }
 
+/// An unstructured alternative representation of [Packet] that is easier to parse and serialize.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct RawPacket {
     request_number: i32,

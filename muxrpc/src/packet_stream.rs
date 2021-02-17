@@ -5,7 +5,7 @@ use futures::prelude::*;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use super::packet::{Header, HeaderParseError, Packet, PacketParseError};
+use crate::packet::{Header, HeaderParseError, Packet, PacketParseError};
 
 #[derive(Debug, thiserror::Error)]
 /// Error receiving an RPC [Packet].
@@ -35,7 +35,7 @@ pub struct PacketStream<Stream> {
     #[pin]
     stream: Stream,
     reader: PacketReader,
-    buffer: bytes::Bytes,
+    buffer: bytes::BytesMut,
 }
 
 impl<Stream> PacketStream<Stream> {
@@ -43,7 +43,7 @@ impl<Stream> PacketStream<Stream> {
         Self {
             stream,
             reader: PacketReader::new(),
-            buffer: bytes::Bytes::new(),
+            buffer: bytes::BytesMut::new(),
         }
     }
 }
@@ -56,23 +56,20 @@ where
     type Item = Result<Packet, NextPacketError>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        let mut needs_data = !self.buffer.has_remaining();
         loop {
             let mut this = self.as_mut().project();
 
-            if this.buffer.is_empty() {
+            if needs_data {
                 match futures::ready!(this.stream.try_poll_next(cx)) {
                     Some(Ok(data)) => {
-                        dbg!(&data);
-
-                        *this.buffer = bytes::Bytes::from(data)
+                        this.buffer.put(data.as_ref());
                     }
                     Some(Err(err)) => {
                         return Poll::Ready(Some(Err(NextPacketError::Source(Box::new(err)))))
                     }
                     None => {
-                        dbg!("underlying end");
-                        dbg!(&this.reader);
-                        if this.reader.is_empty() {
+                        if this.reader.is_done() {
                             return Poll::Ready(None);
                         } else {
                             return Poll::Ready(Some(Err(NextPacketError::UnexpectedEndOfStream)));
@@ -83,6 +80,8 @@ where
 
             if let Some(packet_result) = this.reader.put(&mut this.buffer) {
                 return Poll::Ready(packet_result.transpose());
+            } else {
+                needs_data = true
             }
         }
     }
@@ -93,39 +92,31 @@ where
 /// Call [PacketReader::put] repeatedly until a [Packet] or an error is returned.
 #[derive(Debug)]
 enum PacketReader {
-    ReadingHeader {
-        buffer: bytes::BytesMut,
-    },
-    ReadingBody {
-        header: Header,
-        buffer: bytes::BytesMut,
-    },
+    ReadingHeader,
+    ReadingBody { header: Header },
 }
 
 impl PacketReader {
     fn new() -> Self {
-        Self::ReadingHeader {
-            buffer: bytes::BytesMut::with_capacity(Header::SIZE),
-        }
+        Self::ReadingHeader
     }
 
-    fn put(&mut self, data: &mut bytes::Bytes) -> Option<Result<Option<Packet>, NextPacketError>> {
-        dbg!(&data);
+    fn put(
+        &mut self,
+        mut data: impl bytes::Buf,
+    ) -> Option<Result<Option<Packet>, NextPacketError>> {
         loop {
             if !data.has_remaining() {
                 return None;
             }
 
             match self {
-                Self::ReadingHeader { buffer } => {
-                    use std::convert::TryInto as _;
-                    put_split(data, buffer);
-                    if buffer.has_remaining() {
+                Self::ReadingHeader => {
+                    if data.remaining() < Header::SIZE {
                         return None;
                     }
-                    // .try_into() is guaranteed to not fail since the buffer
-                    // holds exactly Header::SIZE bytes.
-                    let header_data = buffer.as_ref().try_into().unwrap();
+                    let mut header_data = [0u8; Header::SIZE];
+                    data.copy_to_slice(&mut header_data);
                     let header = match Header::parse(header_data) {
                         Ok(Some(header)) => header,
                         Ok(None) => {
@@ -141,17 +132,15 @@ impl PacketReader {
                         };
                     }
 
-                    *self = Self::ReadingBody {
-                        header,
-                        buffer: bytes::BytesMut::with_capacity(header.body_len as usize),
-                    };
+                    *self = Self::ReadingBody { header };
                 }
-                Self::ReadingBody { header, buffer } => {
-                    put_split(data, buffer);
-                    if buffer.has_remaining() {
+                Self::ReadingBody { header } => {
+                    if data.remaining() < header.body_len as usize {
                         return None;
                     }
-                    let packet_result = match Packet::parse(*header, Vec::from(buffer.as_ref())) {
+                    let mut body = vec![0u8; header.body_len as usize];
+                    data.copy_to_slice(&mut body);
+                    let packet_result = match Packet::parse(*header, body) {
                         Ok(packet) => Ok(Some(packet)),
                         Err(err) => Err(NextPacketError::PacketParse(err)),
                     };
@@ -162,20 +151,11 @@ impl PacketReader {
         }
     }
 
-    fn is_empty(&self) -> bool {
+    fn is_done(&self) -> bool {
         match self {
-            PacketReader::ReadingHeader { buffer } => buffer.is_empty(),
+            PacketReader::ReadingHeader => true,
             PacketReader::ReadingBody { .. } => false,
         }
-    }
-}
-
-fn put_split(src: &mut bytes::Bytes, dst: &mut bytes::BytesMut) {
-    if dst.remaining_mut() < src.len() {
-        let data = src.split_to(dst.remaining_mut());
-        dst.put(data);
-    } else {
-        dst.put(src);
     }
 }
 

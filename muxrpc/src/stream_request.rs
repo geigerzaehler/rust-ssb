@@ -1,5 +1,5 @@
-use super::packet::{Body, Request};
-use super::stream_message::StreamMessage;
+use crate::packet::{Body, Request};
+use crate::stream_message::StreamMessage;
 
 /// Request to start a stream with the server
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]

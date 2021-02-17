@@ -1,10 +1,10 @@
 use anyhow::Context as _;
 use futures::prelude::*;
 
-use super::client::Client;
-use super::packet::{Packet, Request, Response};
-use super::packet_stream::{NextPacketError, PacketStream};
-use super::Service;
+use crate::client::Client;
+use crate::packet::{Packet, Request, Response};
+use crate::packet_stream::{NextPacketError, PacketStream};
+use crate::Service;
 
 #[derive(Debug)]
 pub struct Endpoint {
@@ -31,7 +31,7 @@ impl Endpoint {
         let server_task = async_std::task::Builder::new()
             .name("rpc endpoint server".to_string())
             .spawn(async move {
-                super::server::run(service, in_requests_receiver, out_responses_sender)
+                crate::server::run(service, in_requests_receiver, out_responses_sender)
                     .await
                     .context("Server errored")
             })

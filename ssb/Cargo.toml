@@ -32,6 +32,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 socket2 = "0.3.12"
 sodiumoxide = "0.2.5"
+muxrpc = { path = "../muxrpc" }
 ssb-box-stream = { path = "../ssb-box-stream" }
 structopt = "0.3"
 thiserror = "1.0.7"

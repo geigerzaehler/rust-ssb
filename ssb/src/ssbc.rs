@@ -35,7 +35,7 @@ struct Options {
 }
 
 impl Options {
-    async fn client(&self) -> anyhow::Result<crate::rpc::ssb::Client> {
+    async fn client(&self) -> anyhow::Result<crate::rpc::Client> {
         let stream = async_std::os::unix::net::UnixStream::connect(&self.socket)
             .await
             .context(format!(
@@ -46,7 +46,7 @@ impl Options {
         let receive = crate::utils::read_to_stream(read);
         let send = write.into_sink::<Vec<u8>>();
 
-        let client = crate::rpc::ssb::Client::new(send, receive);
+        let client = crate::rpc::Client::new(send, receive);
         Ok(client)
     }
 
@@ -97,16 +97,14 @@ impl Call {
         let mut client = options.client().await?;
         let response = client.base().send_async(method, vec![]).await?;
         let response = match response {
-            crate::rpc::base::AsyncResponse::Json(data) => {
+            muxrpc::AsyncResponse::Json(data) => {
                 let value = serde_json::from_slice::<serde_json::Value>(&data)
                     .context("Failed to decode response")?;
                 serde_json::to_string_pretty(&value).unwrap()
             }
-            crate::rpc::base::AsyncResponse::String(string) => string,
-            crate::rpc::base::AsyncResponse::Blob(_data) => {
-                "Refusing to print binary data".to_string()
-            }
-            crate::rpc::base::AsyncResponse::Error(error) => {
+            muxrpc::AsyncResponse::String(string) => string,
+            muxrpc::AsyncResponse::Blob(_data) => "Refusing to print binary data".to_string(),
+            muxrpc::AsyncResponse::Error(error) => {
                 anyhow::bail!("RPC error \"{}\": {}", error.name, error.message)
             }
         };
@@ -168,7 +166,7 @@ struct Help {
 
 impl Help {
     async fn run(&self, options: Options) -> anyhow::Result<()> {
-        use crate::rpc::ssb::Error;
+        use crate::rpc::Error;
         let mut module = self
             .method
             .split('.')
@@ -210,7 +208,7 @@ impl PublishPost {
     async fn run(&self, options: Options) -> anyhow::Result<()> {
         let mut client = options.client().await?;
         let message = client
-            .publish(crate::rpc::ssb::MessageContent {
+            .publish(crate::rpc::MessageContent {
                 type_: "post".to_string(),
                 text: self.text.clone(),
             })
@@ -246,7 +244,7 @@ impl InviteCreate {
     async fn run(&self, options: Options) -> anyhow::Result<()> {
         let mut client = options.client().await?;
         let invite = client
-            .invite_create(crate::rpc::ssb::InviteCreateParams { uses: self.uses })
+            .invite_create(crate::rpc::InviteCreateParams { uses: self.uses })
             .await?;
         println!("{}", invite);
         Ok(())

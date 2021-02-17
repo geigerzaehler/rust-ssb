@@ -4,11 +4,13 @@ use futures::stream::BoxStream;
 use std::collections::HashMap;
 use std::{pin::Pin, task::Poll};
 
-use super::packet::Response;
+use crate::packet::Response;
 
-pub use super::packet::Body;
-pub use super::{Error, StreamMessage};
+pub use crate::error::Error;
+pub use crate::packet::Body;
+pub use crate::stream_message::StreamMessage;
 
+// TODO doc
 #[derive(Debug, Clone)]
 pub enum AsyncResponse {
     Ok(Body),
@@ -20,7 +22,7 @@ impl AsyncResponse {
         Self::Ok(Body::json(value))
     }
 
-    pub(super) fn into_response(self, number: u32) -> Response {
+    pub(crate) fn into_response(self, number: u32) -> Response {
         match self {
             AsyncResponse::Ok(body) => Response::AsyncOk { number, body },
             AsyncResponse::Err(Error { name, message }) => Response::AsyncErr {
@@ -32,6 +34,7 @@ impl AsyncResponse {
     }
 }
 
+// TODO doc
 #[derive(Debug)]
 pub enum SinkError {
     Done,
@@ -43,6 +46,7 @@ pub enum SinkError {
 #[derive(Debug)]
 pub struct SinkClosed;
 
+// TODO doc
 #[derive(Default)]
 pub struct Service {
     async_handlers: HashMap<Vec<String>, Handler<BoxFuture<'static, AsyncResponse>>>,
@@ -84,16 +88,7 @@ impl Service {
         Args: serde::de::DeserializeOwned,
         Source: Stream<Item = Result<Body, Error>> + Send + 'static,
     {
-        self.stream_handlers.insert(
-            vec![method.to_string()],
-            Box::new(move |args| {
-                let args = serde_json::Value::Array(args);
-                match serde_json::from_value::<Args>(args) {
-                    Ok(args) => stream_to_endpoint(f(args)),
-                    Err(error) => error_endpoint(deserialize_arguments_error(error)),
-                }
-            }),
-        );
+        self.add_duplex(method, move |args: Args| stream_to_endpoint(f(args)));
     }
 
     pub fn add_sink<Args, Sink_>(
@@ -104,16 +99,7 @@ impl Service {
         Args: serde::de::DeserializeOwned,
         Sink_: Sink<StreamMessage, Error = SinkError> + Send + 'static,
     {
-        self.stream_handlers.insert(
-            vec![method.to_string()],
-            Box::new(move |args| {
-                let args = serde_json::Value::Array(args);
-                match serde_json::from_value::<Args>(args) {
-                    Ok(args) => sink_to_endpoint(f(args)),
-                    Err(error) => error_endpoint(deserialize_arguments_error(error)),
-                }
-            }),
-        );
+        self.add_duplex(method, move |args: Args| sink_to_endpoint(f(args)));
     }
 
     pub fn add_duplex<Args, Source, Sink_>(
@@ -161,7 +147,7 @@ impl Service {
             }));
     }
 
-    pub(super) fn handle_async(
+    pub(crate) fn handle_async(
         &self,
         method: Vec<String>,
         args: Vec<serde_json::Value>,
@@ -175,7 +161,7 @@ impl Service {
         }
     }
 
-    pub(super) fn handle_stream(
+    pub(crate) fn handle_stream(
         &self,
         method: Vec<String>,
         args: Vec<serde_json::Value>,
@@ -205,24 +191,27 @@ impl std::fmt::Debug for Service {
     }
 }
 
-pub(super) type BoxEndpointStream = BoxStream<'static, Result<Body, Error>>;
+pub(crate) type BoxEndpointStream = BoxStream<'static, Result<Body, Error>>;
 
-pub(super) type BoxEndpointSink = Pin<Box<dyn Sink<StreamMessage, Error = SinkClosed> + Send>>;
+pub(crate) type BoxEndpointSink = Pin<Box<dyn Sink<StreamMessage, Error = SinkClosed> + Send>>;
 
 type Handler<T> = Box<dyn Fn(Vec<serde_json::Value>) -> T + Send + 'static>;
 
+// TODO document and test
 fn error_endpoint(error: Error) -> (BoxEndpointStream, BoxEndpointSink) {
     let sink = futures::sink::drain().sink_map_err(|infallible| match infallible {});
     let source = futures::stream::once(async move { Err(error) });
     (source.boxed(), Box::pin(sink))
 }
 
+// TODO document and test
 fn sink_to_endpoint(
     sink: impl Sink<StreamMessage, Error = SinkError> + Send + 'static,
 ) -> (BoxEndpointStream, BoxEndpointSink) {
     let (response_sender, response_receiver) =
         futures::channel::oneshot::channel::<Result<Body, Error>>();
-    let source = crate::utils::OneshotStream::new(response_receiver);
+    let source = futures::stream::once(response_receiver)
+        .filter_map(|result| futures::future::ready(result.ok()));
     let duplex_sink = sink
         .with::<_, _, _, SinkError>(|stream_message| {
             futures::future::ready({
@@ -243,6 +232,7 @@ fn sink_to_endpoint(
     (source.boxed(), Box::pin(duplex_sink))
 }
 
+// TODO document and test
 fn stream_to_endpoint(
     source: impl Stream<Item = Result<Body, Error>> + Send + 'static,
 ) -> (BoxEndpointStream, BoxEndpointSink) {
@@ -250,7 +240,22 @@ fn stream_to_endpoint(
     let mut done = false;
     let (peer_end_sender, mut peer_end_receiver) = futures::channel::oneshot::channel();
 
-    let duplex_source = futures::stream::poll_fn(move |ctx| -> Poll<Option<Result<Body, Error>>> {
+    let mut peer_end_sender = Some(peer_end_sender);
+
+    let sink = futures::sink::drain()
+        .sink_map_err(|_| SinkClosed)
+        .with(move |value| {
+            let result = match peer_end_sender.take() {
+                Some(peer_end_sender) => {
+                    let _ = peer_end_sender.send(value);
+                    Ok(())
+                }
+                None => Err(SinkClosed),
+            };
+            futures::future::ready(result)
+        });
+
+    let source = futures::stream::poll_fn(move |ctx| -> Poll<Option<Result<Body, Error>>> {
         if done {
             return Poll::Ready(None);
         }
@@ -274,10 +279,7 @@ fn stream_to_endpoint(
         }
         source.as_mut().poll_next(ctx)
     });
-    (
-        duplex_source.boxed(),
-        Box::pin(crate::utils::OneshotSink::new(peer_end_sender).sink_map_err(|_| SinkClosed)),
-    )
+    (source.boxed(), Box::pin(sink))
 }
 
 fn method_not_found_error(method: &[String]) -> Error {

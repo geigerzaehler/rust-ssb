@@ -1,6 +1,7 @@
-use super::error::Error;
-use super::packet::{Body, Request, Response};
+use crate::error::Error;
+use crate::packet::{Body, Request, Response};
 
+// TODO doc
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub enum StreamMessage {
@@ -10,14 +11,14 @@ pub enum StreamMessage {
 }
 
 impl StreamMessage {
-    pub(super) fn into_response(self, number: u32) -> Response {
+    pub(crate) fn into_response(self, number: u32) -> Response {
         Response::Stream {
             number,
             message: self,
         }
     }
 
-    pub(super) fn into_request(self, number: u32) -> Request {
+    pub(crate) fn into_request(self, number: u32) -> Request {
         Request::Stream {
             number,
             message: self,

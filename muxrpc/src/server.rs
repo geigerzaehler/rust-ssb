@@ -1,9 +1,9 @@
 use anyhow::Context as _;
 use futures::prelude::*;
 
-use super::packet::{Request, Response};
-use super::service::{BoxEndpointSink, BoxEndpointStream, Error, Service, StreamMessage};
-use super::stream_request::StreamRequest;
+use crate::packet::{Request, Response};
+use crate::service::{BoxEndpointSink, BoxEndpointStream, Error, Service, StreamMessage};
+use crate::stream_request::StreamRequest;
 
 pub async fn run(
     service: Service,
@@ -263,7 +263,7 @@ mod test {
         service.add_sink("sink", |_: Vec<()>| {
             futures::sink::drain::<StreamMessage>()
                 .sink_map_err(|infallible| match infallible {})
-                .with(|_| futures::future::ready(Err(super::super::service::SinkError::Done)))
+                .with(|_| futures::future::ready(Err(crate::service::SinkError::Done)))
         });
 
         let mut test_dispatcher = TestDispatcher::new(service);

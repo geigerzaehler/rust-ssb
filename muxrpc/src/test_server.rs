@@ -1,9 +1,9 @@
 use anyhow::Context;
 use futures::prelude::*;
 
-use super::endpoint::Endpoint;
-use super::service::{AsyncResponse, Body, Service, SinkError};
-use super::{Error, StreamMessage};
+use crate::endpoint::Endpoint;
+use crate::service::{AsyncResponse, Body, Service, SinkError};
+use crate::{Error, StreamMessage};
 
 fn test_service() -> Service {
     let mut service = Service::new();

@@ -3,10 +3,10 @@ use futures::prelude::*;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use super::error::Error;
-use super::packet::{Body, Request, Response};
-use super::stream_message::StreamMessage;
-use super::stream_request::{StreamRequest, StreamRequestType};
+use crate::error::Error;
+use crate::packet::{Body, Request, Response};
+use crate::stream_message::StreamMessage;
+use crate::stream_request::{StreamRequest, StreamRequestType};
 
 /// Client for an application agnostic RPC protocol described in the [Scuttlebutt
 /// Protocol Guide][ssb-prot].
