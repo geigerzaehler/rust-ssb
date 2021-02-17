@@ -149,11 +149,9 @@ pub async fn run(bind_addr: impl async_std::net::ToSocketAddrs) -> anyhow::Resul
 async fn handle_incoming(stream: async_std::net::TcpStream) -> anyhow::Result<()> {
     tracing::info!(addr = ?stream.peer_addr().unwrap(), "connected to client");
     let (read, write) = stream.split();
-    let endpoint = Endpoint::new(
-        write.into_sink(),
-        crate::utils::read_to_stream(read),
-        test_service(),
-    );
+    let read = futures_codec::FramedRead::new(read, futures_codec::BytesCodec)
+        .map(|result| result.map(|bytes| Vec::from(bytes.as_ref())));
+    let endpoint = Endpoint::new(write.into_sink(), read, test_service());
     endpoint.join().await.context("Endpoint::join failed")?;
     Ok(())
 }

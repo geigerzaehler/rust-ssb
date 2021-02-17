@@ -15,7 +15,7 @@ async fn echo_string() -> anyhow::Result<()> {
 
     assert_eq!(
         result,
-        ssb::rpc::base::AsyncResponse::String("hello world".to_string())
+        muxrpc::AsyncResponse::String("hello world".to_string())
     );
 
     Ok(())
@@ -35,7 +35,7 @@ async fn echo_json() -> anyhow::Result<()> {
 
     assert_eq!(
         result,
-        ssb::rpc::base::AsyncResponse::Json(serde_json::to_vec(&payload).unwrap())
+        muxrpc::AsyncResponse::Json(serde_json::to_vec(&payload).unwrap())
     );
 
     Ok(())
@@ -56,7 +56,7 @@ async fn echo_error() -> anyhow::Result<()> {
 
     assert_eq!(
         result,
-        ssb::rpc::base::AsyncResponse::Error(ssb::rpc::base::Error::new("ERROR", "MSG"))
+        muxrpc::AsyncResponse::Error(muxrpc::Error::new("ERROR", "MSG"))
     );
 
     Ok(())
@@ -81,7 +81,7 @@ async fn duplex_add() {
     let expected_outputs = inputs.map(|x| x + 1).collect::<Vec<_>>();
     async_std::task::spawn(async move {
         for i in inputs2 {
-            send.send(ssb::rpc::base::Body::json(&i)).await.unwrap();
+            send.send(muxrpc::Body::json(&i)).await.unwrap();
         }
         send.close().await.unwrap();
     });
@@ -97,12 +97,10 @@ async fn duplex_add() {
 const SERVER_ADDR: &str = "127.0.0.1:19423";
 
 // Create a client that connects to a server at [SERVER_ADDR].
-async fn connect_client() -> Result<ssb::rpc::base::Endpoint, std::io::Error> {
+async fn connect_client() -> Result<muxrpc::Endpoint, std::io::Error> {
     let connection = async_std::net::TcpStream::connect(SERVER_ADDR).await?;
     let (read, write) = connection.split();
-    let stream = ssb::utils::read_to_stream(read);
-    Ok(ssb::rpc::base::Endpoint::new_client(
-        write.into_sink(),
-        stream,
-    ))
+    let stream = futures_codec::FramedRead::new(read, futures_codec::BytesCodec)
+        .map(|result| result.map(|bytes| Vec::from(bytes.as_ref())));
+    Ok(muxrpc::Endpoint::new_client(write.into_sink(), stream))
 }

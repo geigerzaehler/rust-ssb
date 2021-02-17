@@ -9,7 +9,7 @@ nvm use v12
 cargo clippy --locked --all-targets --all-features -- --deny warnings
 
 (
-  cd ssb
+  cd muxrpc
   DETACH=true ./tests/ssb-server.sh
   (
       cd muxrpc-test-suite

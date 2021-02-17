@@ -6,8 +6,13 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = []
+test-server = ["futures_codec"]
+
 [dependencies]
 anyhow = "1.0"
+async-std = { version = "1.6", features = ["attributes"] }
 bytes = "1"
 chashmap = "2"
 futures = "0.3"
@@ -16,11 +21,13 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1"
 tracing = "0.1"
-# TODO make optional
-async-std = { version = "1.6", features = ["unstable", "attributes"] }
+
+futures_codec = { optional = true, version =  "0.4" }
 
 [dev-dependencies]
-tracing-subscriber = "0.2"
+assert_cmd = "1.0.1"
+futures_codec = "0.4"
 proptest = "0.10"
 proptest-derive = "0.2"
 test-strategy = "0.1"
+tracing-subscriber = "0.2"

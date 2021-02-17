@@ -795,10 +795,12 @@ name = "muxrpc"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "assert_cmd",
  "async-std",
  "bytes 1.0.1",
  "chashmap",
  "futures",
+ "futures_codec",
  "pin-project 1.0.5",
  "proptest",
  "proptest-derive",

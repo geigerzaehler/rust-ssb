@@ -4,10 +4,8 @@ async fn server() {
     tracing_subscriber::fmt::init();
 
     let port = "15399";
-    let server_task = async_std::task::spawn(ssb::rpc::base::test_server::run(format!(
-        "127.0.0.1:{}",
-        port
-    )));
+    let server_task =
+        async_std::task::spawn(muxrpc::test_server::run(format!("127.0.0.1:{}", port)));
 
     let mut cmd = assert_cmd::Command::new("node");
     cmd.current_dir("muxrpc-test-suite");
