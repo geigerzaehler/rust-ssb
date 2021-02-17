@@ -3,12 +3,20 @@ name = "muxrpc"
 version = "0.2.0"
 authors = ["Thomas Scholtes <lambdaqu@gmail.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "RPC protocol with support for streams used by Scuttlebutt"
+license = "ISC"
+readme = "README.md"
+keywords = ["ssb", "scuttlebutt", "muxrpc", "rpc"]
+repository = "https://github.com/geigerzaehler/rust-ssb"
+homepage = "https://github.com/geigerzaehler/rust-ssb/tree/main/muxrpc"
 
 [features]
 default = []
 test-server = ["futures_codec"]
+
+[[example]]
+name = "server"
+required-features = ["test-server"]
 
 [dependencies]
 anyhow = "1.0"

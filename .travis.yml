@@ -40,7 +40,7 @@ jobs:
       node_js: 12
       cache: yarn
       before_install:
-        - cd ssb/muxrpc-test-suite
+        - cd muxrpc/muxrpc-test-suite
       install:
         - yarn --frozen-lockfile install
       script:

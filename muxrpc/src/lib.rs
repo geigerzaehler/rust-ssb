@@ -1,4 +1,4 @@
-//! Application agnostic, bidirectional RPC protocol used by [Scuttlebutt][sb].
+//! Application agnostic, bidirectional RPC protocol with stream support used by [Scuttlebutt][sb].
 //!
 //! The protocol is defined in the [Scuttlebutt Protocol Guide][ssb-prot]. The
 //! de facto reference implementation is [_ssbc/muxrpc_][ssbc-muxrpc].
